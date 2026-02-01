@@ -501,9 +501,9 @@ MIT License - Free to use, modify, and distribute
 
 Need help? We've got you covered:
 
-- 📖 **Documentation:** [Wiki](https://github.com/YOUR_USERNAME/pikachu-assistant/wiki)
-- 🐛 **Bug Reports:** [Issues](https://github.com/YOUR_USERNAME/pikachu-assistant/issues)
-- 💬 **Discussions:** [GitHub Discussions](https://github.com/YOUR_USERNAME/pikachu-assistant/discussions)
+- 📖 **Documentation:** [Wiki](https://github.com/Surajkumar5050/pikachu-assistant/tree/main/docs)
+- 🐛 **Bug Reports:** [Issues](https://github.com/Surajkumar5050/pikachu-assistant/issues)
+- 💬 **Discussions:** [GitHub Discussions](https://github.com/Surajkumar5050/pikachu-assistant/discussions)
 - ⭐ **Star this repo** if you find it useful!
 
 ---
