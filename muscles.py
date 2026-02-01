@@ -6,7 +6,6 @@ import screen_brightness_control as sbc
 import psutil
 import shutil
 
-# --- PROCESS TRANSLATOR (User words -> Windows .exe names) ---
 PROCESS_NAMES = {
     # Browsers
     "chrome": "chrome.exe", "googlechrome": "chrome.exe", "google": "chrome.exe",
@@ -40,12 +39,10 @@ PROCESS_NAMES = {
     "zoom": "Zoom.exe"
 }
 
-# --- DYNAMIC BROWSER LOCATOR ---
 def get_browser_path(browser_name):
     """Finds browser executable dynamically without hardcoded paths."""
     browser_name = browser_name.lower().strip()
     
-    # Map common names to their executable filenames
     exes = {
         "chrome": "chrome.exe",
         "google": "chrome.exe",
@@ -60,15 +57,15 @@ def get_browser_path(browser_name):
     executable = exes.get(browser_name, f"{browser_name}.exe")
     if not executable.endswith(".exe"): executable += ".exe"
     
-    # 1. Ask Windows if it knows where this file is
+  
     path = shutil.which(executable)
     if path: return path
     
-    # 2. Check common installation folders dynamically
+   
     possible_roots = [
         os.environ.get("PROGRAMFILES"), 
         os.environ.get("PROGRAMFILES(X86)"),
-        os.environ.get("LOCALAPPDATA") # Chrome/Brave sometimes install here
+        os.environ.get("LOCALAPPDATA") 
     ]
     
     common_subdirs = [
@@ -88,11 +85,11 @@ def get_browser_path(browser_name):
                 
     return None
 
-# --- WEBCAM FUNCTION ---
+
 def capture_webcam():
     print("📸 Accessing Webcam...")
     try:
-        # Try index 0 first, then 1 (for external cams)
+      
         for i in range(2):
             cam = cv2.VideoCapture(i)
             if cam.isOpened():
@@ -109,7 +106,7 @@ def capture_webcam():
         print(f"Error accessing webcam: {e}")
         return None
 
-# --- SCREENSHOT FUNCTION ---
+
 def capture_screen():
     file_path = os.path.join(os.getcwd(), "screenshot.png")
     try:
@@ -125,7 +122,7 @@ def system_sleep():
     print("💤 Going to sleep...")
     os.system("rundll32.exe powrprof.dll,SetSuspendState 0,1,0")
 
-# --- BATTERY FUNCTION ---
+
 def get_battery_status():
     try:
         battery = psutil.sensors_battery()
@@ -140,7 +137,7 @@ def get_battery_status():
     except Exception as e:
         return f"Error reading battery: {e}"
 
-# --- SYSTEM HEALTH FUNCTION ---
+
 def get_system_health():
     try:
         cpu_usage = psutil.cpu_percent(interval=1)
@@ -151,22 +148,22 @@ def get_system_health():
     except Exception as e:
         return f"Error reading system health: {e}"
 
-# --- APP CONTROL ---
+
 def open_browser(url, browser_name="default"):
     print(f"🌐 Request to open '{url}' in '{browser_name}'")
     
     try:
-        # If no specific browser requested, use system default
+      
         if not browser_name or browser_name.lower() == "default":
             webbrowser.open(url)
             return
 
-        # Find the actual EXE path
+       
         path = get_browser_path(browser_name)
         
         if path:
             print(f"   -> Found browser at: {path}")
-            # Register it with python's webbrowser module
+            
             webbrowser.register(browser_name, None, webbrowser.BackgroundBrowser(path))
             webbrowser.get(browser_name).open(url)
         else:
@@ -178,15 +175,15 @@ def open_browser(url, browser_name="default"):
         webbrowser.open(url)
 
 def close_application(app_name):
-    # 1. Clean the input
+    
     clean_name = app_name.lower()
     for word in ["the ", "app ", "application ", "close ", "open "]:
         clean_name = clean_name.replace(word, "")
     
-    # Remove spaces
+    
     app_key = clean_name.strip().replace(" ", "")
     
-    # 2. Find the EXE from our map
+  
     if app_key in PROCESS_NAMES:
         exe_name = PROCESS_NAMES[app_key]
     else:
@@ -194,7 +191,7 @@ def close_application(app_name):
         
     print(f"💀 Killing process target: {exe_name}")
     
-    # 3. Execute Taskkill
+
     try:
         os.system(f"taskkill /f /im {exe_name} /t")
     except Exception as e:
@@ -222,7 +219,6 @@ def set_brightness(level):
     except Exception as e:
         print(f"Error setting brightness: {e}")
 
-# --- MAIN EXECUTOR ---
 def execute_command(cmd_json):
     if not cmd_json: return
     action = cmd_json.get("action")
@@ -233,7 +229,7 @@ def execute_command(cmd_json):
     elif action == "check_health": return get_system_health()
     elif action == "system_sleep": system_sleep()
     
-    # FIX: Updated to use "browser" key correctly
+   
     elif action == "open_url": 
         open_browser(cmd_json.get("url"), cmd_json.get("browser", "default"))
         
