@@ -1,12 +1,12 @@
 import speech_recognition as sr
 import pyttsx3
 
-# Initialize
+
 recognizer = sr.Recognizer()
 engine = pyttsx3.init()
 engine.setProperty('rate', 170)
 
-# --- CONFIGURATION ---
+
 WAKE_WORDS = ["pikachu", "pika", "peek a", "pick a", "picacho", "hey you"]
 
 def speak(text):
@@ -18,20 +18,20 @@ def speak(text):
         pass
 
 def listen_for_command():
-    # USES SYSTEM DEFAULT MICROPHONE
+
     try:
         with sr.Microphone() as source:
             print("\n👂 Listening (Default Mic)...", end="", flush=True)
             
-            # Adjusts for noise dynamically
+     
             recognizer.adjust_for_ambient_noise(source, duration=0.2)
             
             try:
-                # Listen
+            
                 audio = recognizer.listen(source, timeout=4, phrase_time_limit=4)
                 print(" Processing...", end="", flush=True)
                 
-                # Convert to text
+                
                 command = recognizer.recognize_google(audio).lower()
                 print(f"\n   -> I heard: '{command}'")
                 
@@ -53,7 +53,7 @@ def listen_for_command():
         return False
 
 def take_user_input():
-    # USES SYSTEM DEFAULT MICROPHONE
+  
     with sr.Microphone() as source:
         print("🎤 Command Mode: Speak now...")
         recognizer.adjust_for_ambient_noise(source, duration=0.2)
