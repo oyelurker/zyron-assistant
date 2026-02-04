@@ -4,11 +4,11 @@ import os
 from dotenv import load_dotenv
 from memory import get_context_string
 
-# Load environment variables
+
 load_dotenv()
 MODEL_NAME = os.getenv("MODEL_NAME", "qwen2.5-coder:7b")
 
-# Base prompt (The fixed rules)
+
 BASE_SYSTEM_PROMPT = """
 You are Pikachu, a smart laptop assistant with memory.
 Your ONLY output must be valid JSON.
@@ -71,10 +71,10 @@ Use the [CURRENT CONTEXT STATE] below to resolve words like "it", "that", "the a
 def process_command(user_input):
     print(f"⚡ Sending to Qwen: {user_input}")
     
-    # 1. Get Dynamic Context from Memory
+    
     current_context = get_context_string()
     
-    # 2. Combine Rules + Context
+    
     full_prompt = BASE_SYSTEM_PROMPT + "\n" + current_context
     
     try:
@@ -88,13 +88,13 @@ def process_command(user_input):
         )
         content = response['message']['content']
         
-        # Clean Markdown if AI adds it
+        
         if "```" in content:
             content = content.replace("```json", "").replace("```", "").strip()
         
         data = json.loads(content)
         
-        # --- PARANOID OVERRIDES (Safety Net) ---
+        
         lower = user_input.lower()
         
         # 1. Force Camera

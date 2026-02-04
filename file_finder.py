@@ -9,7 +9,7 @@ import os
 from datetime import datetime, timedelta
 import re
 from typing import List, Dict, Tuple, Optional
-
+from difflib import SequenceMatcher
 
 # File to load activity logs from
 FILE_ACTIVITY_LOG = "file_activity_log.json"
@@ -40,15 +40,51 @@ def parse_time_query(query_text: str) -> Optional[Tuple[datetime, datetime]]:
     query_lower = query_text.lower()
     now = datetime.now()
     
-    # Helper function to get start of day
+    
     def start_of_day(dt):
         return dt.replace(hour=0, minute=0, second=0, microsecond=0)
     
-    # Helper function to get end of day
+    
     def end_of_day(dt):
         return dt.replace(hour=23, minute=59, second=59, microsecond=999999)
     
-    # TODAY
+    
+    time_match = re.search(r'(\d{1,2})[:.](\d{2})\s*(am|pm)?|(\d{1,2})\s*(am|pm)', query_lower)
+    
+    if time_match:
+        try:
+            is_pm = False
+            hour = 0
+            minute = 0
+            
+            if time_match.group(1): # Format 17.43 or 17:43
+                hour = int(time_match.group(1))
+                minute = int(time_match.group(2))
+                is_pm = time_match.group(3) == 'pm'
+            else: # Format 5 pm
+                hour = int(time_match.group(4))
+                minute = 0
+                is_pm = time_match.group(5) == 'pm'
+            
+            # Convert 12h to 24h
+            if is_pm and hour < 12: 
+                hour += 12
+            if not is_pm and hour == 12 and (time_match.group(3) == 'am' or time_match.group(5) == 'am'):
+                hour = 0
+                
+            # Assume "today" unless "yesterday" is mentioned
+            target_day = now
+            if "yesterday" in query_lower:
+                target_day = now - timedelta(days=1)
+                
+            target_time = target_day.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            # Create a 30-minute window around the specific time
+            return (target_time - timedelta(minutes=30), target_time + timedelta(minutes=30))
+        except:
+            pass
+
+    # --- 2. EXISTING LOGIC: TODAY ---
     if "today" in query_lower:
         # Check for time of day modifiers
         if "morning" in query_lower or "this morning" in query_lower:
@@ -193,7 +229,7 @@ def normalize_file_type(query_text: str) -> Optional[List[str]]:
     type_mappings = {
         # Documents
         'pdf': ['pdf'],
-        'document': ['doc', 'docx', 'txt', 'odt', 'rtf'],
+        'document': ['doc', 'docx', 'txt', 'odt', 'rtf', 'pdf'],
         'doc': ['doc', 'docx'],
         'word': ['doc', 'docx'],
         'text': ['txt', 'rtf'],
@@ -272,8 +308,11 @@ def extract_keyword(query_text: str) -> Optional[str]:
         'i', 'was', 'reading', 'working', 'on', 'opened', 'accessed', 'yesterday',
         'today', 'morning', 'afternoon', 'evening', 'night', 'last', 'this',
         'hours', 'ago', 'minutes', 'recent', 'just', 'pdf', 'excel', 'word',
-        'image', 'video', 'audio', 'me', 'my', 'a', 'an'
+        'image', 'video', 'audio', 'me', 'my', 'a', 'an', 'at', 'in'
     ]
+    
+    # Remove time strings (like "17.43") to prevent them being treated as keywords
+    query_lower = re.sub(r'\d{1,2}[:.]\d{2}', '', query_lower)
     
     # Split into words
     words = query_lower.split()
@@ -283,13 +322,15 @@ def extract_keyword(query_text: str) -> Optional[str]:
     
     # If we have remaining words, use the first one as keyword
     if meaningful_words:
-        return meaningful_words[0]
+        # Prefer the longest word as it's likely the project name
+        return max(meaningful_words, key=len)
     
     return None
 
 
 def calculate_relevance_score(entry: Dict, time_range: Optional[Tuple[datetime, datetime]], 
-                              file_types: Optional[List[str]], keyword: Optional[str]) -> float:
+                              file_types: Optional[List[str]], keyword: Optional[str],
+                              target_app: Optional[str] = None) -> float:
     """
     Calculate relevance score for a file entry
     Higher score = more relevant
@@ -299,26 +340,35 @@ def calculate_relevance_score(entry: Dict, time_range: Optional[Tuple[datetime, 
         time_range: Optional time range filter
         file_types: Optional file type filter
         keyword: Optional keyword filter
+        target_app: Optional app filter (e.g. "edge", "chrome")
         
     Returns:
         Relevance score (0-100)
     """
     score = 0.0
     
-    # Base score from recency (max 40 points)
-    entry_time = datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')
+    try:
+        entry_time = datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')
+    except:
+        return 0
+        
+    # 1. TIME SCORE (Crucial - Added Logic)
+    if time_range:
+        start_dt, end_dt = time_range
+        if start_dt <= entry_time <= end_dt:
+            score += 100  # Huge bonus for matching specific time
+        else:
+            # If user gave a specific time, strictly penalize files outside it
+            # This prevents finding random files when a specific time was asked
+            return 0 
+            
+    # 2. RECENCY SCORE (Base - Existing)
     hours_old = (datetime.now() - entry_time).total_seconds() / 3600
-    
-    if hours_old < 1:
-        score += 40
-    elif hours_old < 6:
-        score += 35
-    elif hours_old < 24:
-        score += 30
-    elif hours_old < 72:
-        score += 20
-    else:
-        score += 10
+    if hours_old < 1: score += 40
+    elif hours_old < 6: score += 35
+    elif hours_old < 24: score += 30
+    elif hours_old < 72: score += 20
+    else: score += 10
     
     # Duration score (max 20 points)
     duration = entry.get('duration_seconds', 0)
@@ -329,19 +379,33 @@ def calculate_relevance_score(entry: Dict, time_range: Optional[Tuple[datetime, 
     elif duration > 0:
         score += 10
     
-    # Type match bonus (max 20 points)
+    # 3. TYPE MATCH (Existing)
     if file_types and entry['file_type'] in file_types:
         score += 20
+    elif file_types:
+        score -= 20 # Penalty for wrong type
+        
+    # 4. NEW: APP MATCH
+    if target_app:
+        app_used = entry.get('app_used', '').lower()
+        if target_app in app_used:
+            score += 50
+        else:
+            score -= 20
     
-    # Keyword match bonus (max 20 points)
+    # 5. KEYWORD MATCH (Existing + Improved Fuzzy)
     if keyword:
         filename_lower = entry['file_name'].lower()
         if keyword in filename_lower:
-            score += 20
-        elif any(char in keyword for char in filename_lower):
-            score += 10
+            score += 40
+        else:
+            # Fuzzy match using SequenceMatcher
+            match_ratio = SequenceMatcher(None, keyword, filename_lower).ratio()
+            if match_ratio > 0.6:
+                score += (match_ratio * 30)
     
-    return score
+    # --- FINAL CAP: Ensure score never exceeds 100 ---
+    return min(score, 100.0)
 
 
 def find_files(time_query: Optional[str] = None, file_type: Optional[str] = None, 
@@ -378,23 +442,13 @@ def find_files(time_query: Optional[str] = None, file_type: Optional[str] = None
     scored_results = []
     
     for entry in activity_log:
-        # Time filter
-        if time_range:
-            entry_time = datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')
-            if not (time_range[0] <= entry_time <= time_range[1]):
-                continue
-        
-        # Type filter
-        if file_types and entry['file_type'] not in file_types:
-            continue
-        
-        # Calculate relevance score
+        # Calculate relevance score (Uses default None for target_app here)
         score = calculate_relevance_score(entry, time_range, file_types, keyword)
         
-        # Add to results with score
-        result = entry.copy()
-        result['confidence_score'] = score
-        scored_results.append(result)
+        if score > 0:
+            result = entry.copy()
+            result['confidence_score'] = score
+            scored_results.append(result)
     
     # Sort by score (highest first)
     scored_results.sort(key=lambda x: x['confidence_score'], reverse=True)
@@ -406,6 +460,7 @@ def find_files(time_query: Optional[str] = None, file_type: Optional[str] = None
 def find_files_from_query(natural_query: str, limit: int = 5) -> List[Dict]:
     """
     Convenience function - extract all parameters from a single natural language query
+    Updated to handle App detection as well.
     
     Args:
         natural_query: Full natural language query
@@ -419,13 +474,35 @@ def find_files_from_query(natural_query: str, limit: int = 5) -> List[Dict]:
     file_types = normalize_file_type(natural_query)
     keyword = extract_keyword(natural_query)
     
-    # Search
-    return find_files(
-        time_query=natural_query if time_range else None,
-        file_type=natural_query if file_types else None,
-        keyword=keyword,
-        limit=limit
-    )
+    # NEW: Detect Target App from query
+    target_app = None
+    q_lower = natural_query.lower()
+    if "edge" in q_lower: target_app = "edge"
+    elif "chrome" in q_lower: target_app = "chrome"
+    elif "brave" in q_lower: target_app = "brave"
+    elif "firefox" in q_lower: target_app = "firefox"
+    elif "code" in q_lower or "vscode" in q_lower: target_app = "code"
+    elif "notepad" in q_lower: target_app = "notepad"
+    
+    # Load logs
+    activity_log = load_file_activity_log()
+    if not activity_log:
+        return []
+        
+    scored_results = []
+    
+    for entry in activity_log:
+        # Pass all extracted info to the score calculator
+        score = calculate_relevance_score(entry, time_range, file_types, keyword, target_app)
+        
+        if score > 0:
+            result = entry.copy()
+            result['confidence_score'] = score
+            scored_results.append(result)
+            
+    # Sort results
+    scored_results.sort(key=lambda x: x['confidence_score'], reverse=True)
+    return scored_results[:limit]
 
 
 def format_search_results(results: List[Dict], include_paths: bool = True) -> str:
@@ -466,14 +543,14 @@ def format_search_results(results: List[Dict], include_paths: bool = True) -> st
             ago_str = f"{days_ago}d ago"
         
         # Confidence emoji
-        if confidence >= 60:
+        if confidence >= 90:
             conf_emoji = "🎯"
-        elif confidence >= 40:
+        elif confidence >= 60:
             conf_emoji = "✅"
         else:
             conf_emoji = "📄"
         
-        lines.append(f"{i}. {conf_emoji} **{file_name}**")
+        lines.append(f"{i}. {conf_emoji} **{file_name}** ({int(confidence)}%)")
         lines.append(f"   📅 {date_str} at {time_str} ({ago_str})")
         lines.append(f"   📱 {app_used}")
         
@@ -519,6 +596,8 @@ def test_time_parser():
         "something from last week",
         "files from this morning",
         "video 30 minutes ago",
+        "PDF at 17.43",
+        "file opened at 5:30 pm"
     ]
     
     for query in test_queries:
@@ -568,6 +647,7 @@ def test_search():
         "document last Monday",
         "recent files",
         "that test document",
+        "page 2 pdf 17.43"
     ]
     
     for query in test_queries:

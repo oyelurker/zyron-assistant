@@ -1,8 +1,3 @@
-"""
-Activity Monitor Module for Pikachu Desktop Assistant
-Monitors running applications, browser tabs, and system processes
-"""
-
 import psutil
 import json
 import os
@@ -29,6 +24,22 @@ BROWSER_PROCESSES = {
     'firefox.exe': 'Mozilla Firefox',
     'opera.exe': 'Opera'
 }
+
+def escape_markdown(text):
+    """
+    Escapes special characters for Telegram Markdown V1 to prevent parse errors.
+    Characters escaped: _ * [ ] `
+    """
+    if not text:
+        return ""
+    
+    # In Markdown V1, primarily _ * [ ] ` need escaping to avoid "Can't parse entities"
+    escape_chars = ['_', '*', '[', ']', '`']
+    
+    for char in escape_chars:
+        text = text.replace(char, f'\\{char}')
+    
+    return text
 
 def get_running_processes():
     """Get all running processes with their details"""
@@ -62,24 +73,11 @@ def get_chrome_tabs():
             'Google', 'Chrome', 'User Data', 'Default'
         )
         
-        # Try to read from Sessions directory
-        sessions_path = os.path.join(chrome_path, 'Sessions')
-        current_session = os.path.join(sessions_path, 'Session_13131313131313')
-        tabs_file = os.path.join(sessions_path, 'Tabs_13131313131313')
-        
-        # Try reading the session database
-        session_db = None
-        for file in ['Current Session', 'Current Tabs']:
-            db_path = os.path.join(chrome_path, file)
-            if os.path.exists(db_path):
-                session_db = db_path
-                break
-        
-        # Try History database as fallback
+        # Try to read History file
         history_db = os.path.join(chrome_path, 'History')
         
         if os.path.exists(history_db):
-            # Copy to temp location to avoid lock
+            # Copy to temp to avoid locking
             temp_db = os.path.join(os.environ.get('TEMP', ''), 'chrome_history_temp.db')
             try:
                 shutil.copy2(history_db, temp_db)
@@ -87,12 +85,12 @@ def get_chrome_tabs():
                 conn = sqlite3.connect(temp_db)
                 cursor = conn.cursor()
                 
-                # Get recent URLs (likely open tabs)
+                # Get recent URLs
                 cursor.execute("""
                     SELECT url, title, last_visit_time 
                     FROM urls 
                     ORDER BY last_visit_time DESC 
-                    LIMIT 100
+                    LIMIT 50
                 """)
                 
                 results = cursor.fetchall()
@@ -103,12 +101,13 @@ def get_chrome_tabs():
                     os.remove(temp_db)
                 except:
                     pass
-                
-                # Return top results as likely open tabs
-                for url, title, _ in results[:30]:  # Limit to 30 most recent
-                    if url and title:
+            
+                for url, title, _ in results[:30]:  # Limit to 30 recent
+                    if url:
+                        # Use URL as title if title is missing
+                        display_title = title if title else url
                         tabs.append({
-                            'title': title,
+                            'title': display_title,
                             'url': url
                         })
                         
@@ -146,7 +145,7 @@ def get_brave_tabs():
                     SELECT url, title, last_visit_time 
                     FROM urls 
                     ORDER BY last_visit_time DESC 
-                    LIMIT 100
+                    LIMIT 50
                 """)
                 
                 results = cursor.fetchall()
@@ -158,9 +157,10 @@ def get_brave_tabs():
                     pass
                 
                 for url, title, _ in results[:30]:
-                    if url and title:
+                    if url:
+                        display_title = title if title else url
                         tabs.append({
-                            'title': title,
+                            'title': display_title,
                             'url': url
                         })
                         
@@ -198,7 +198,7 @@ def get_edge_tabs():
                     SELECT url, title, last_visit_time 
                     FROM urls 
                     ORDER BY last_visit_time DESC 
-                    LIMIT 100
+                    LIMIT 50
                 """)
                 
                 results = cursor.fetchall()
@@ -210,9 +210,10 @@ def get_edge_tabs():
                     pass
                 
                 for url, title, _ in results[:30]:
-                    if url and title:
+                    if url:
+                        display_title = title if title else url
                         tabs.append({
-                            'title': title,
+                            'title': display_title,
                             'url': url
                         })
                         
@@ -230,7 +231,7 @@ def get_firefox_tabs():
     tabs = []
     
     try:
-        # Firefox profile path
+        # Firefox profiles path
         firefox_path = os.path.join(
             os.environ.get('APPDATA', ''),
             'Mozilla', 'Firefox', 'Profiles'
@@ -258,7 +259,7 @@ def get_firefox_tabs():
                         cursor.execute("""
                             SELECT url, title, last_visit_date 
                             FROM moz_places 
-                            WHERE title IS NOT NULL 
+                            WHERE url IS NOT NULL 
                             ORDER BY last_visit_date DESC 
                             LIMIT 50
                         """)
@@ -272,13 +273,14 @@ def get_firefox_tabs():
                             pass
                         
                         for url, title, _ in results[:30]:
-                            if url and title:
+                            if url:
+                                display_title = title if title else url
                                 tabs.append({
-                                    'title': title,
+                                    'title': display_title,
                                     'url': url
                                 })
                         
-                        break  # Found default profile, exit loop
+                        break # Found and processed the main profile
                         
                     except Exception as e:
                         print(f"Error reading Firefox places: {e}")
@@ -319,7 +321,7 @@ def get_browser_tabs_win32():
                     if title and title.strip():
                         browser_name = BROWSER_PROCESSES[proc_name]
                         
-                        # Clean up the title (remove browser name suffix)
+                        # Clean up browser suffixes from window titles
                         for suffix in [f' - {browser_name}', f' — {browser_name}', 
                                       ' - Google Chrome', ' - Brave', ' - Microsoft Edge',
                                       ' - Mozilla Firefox', ' - Chromium']:
@@ -327,11 +329,11 @@ def get_browser_tabs_win32():
                                 title = title[:-len(suffix)]
                                 break
                         
-                        # Skip generic/empty titles
+                        # Filter out generic window titles
                         if title.strip() and title not in ['New Tab', 'Chrome', 'Brave', 'Edge', 'Firefox']:
                             tabs_by_browser[browser_name].append({
                                 'title': title.strip(),
-                                'url': 'Install extension for URLs'
+                                'url': 'Active Window' # Placeholder as we can't get URL from window title easily
                             })
             except Exception as e:
                 pass
@@ -347,63 +349,9 @@ def get_browser_tabs_win32():
 def get_browser_tabs_all():
     """Get browser tabs from all detected browsers using their databases"""
     
-    # First try win32 method if available (gets actual open windows)
-    if HAS_WIN32:
-        print("   → Using win32 method for actual open tabs...")
-        win32_tabs = get_browser_tabs_win32()
-        if win32_tabs:
-            # Enhance with URLs from history database
-            processes = get_running_processes()
-            running_browsers = set()
-            
-            for proc in processes:
-                if proc['name'] in BROWSER_PROCESSES:
-                    browser_name = BROWSER_PROCESSES[proc['name']]
-                    running_browsers.add(browser_name)
-            
-            print(f"   → Detected running browsers: {running_browsers}")
-            
-            # Try to get URLs from history for each browser
-            for browser_name in win32_tabs.keys():
-                if browser_name == 'Google Chrome':
-                    chrome_tabs = get_chrome_tabs()
-                    # Match titles and add URLs
-                    for tab in win32_tabs[browser_name]:
-                        for history_tab in chrome_tabs:
-                            if history_tab['title'] == tab['title']:
-                                tab['url'] = history_tab['url']
-                                break
-                
-                elif browser_name == 'Brave Browser':
-                    brave_tabs = get_brave_tabs()
-                    for tab in win32_tabs[browser_name]:
-                        for history_tab in brave_tabs:
-                            if history_tab['title'] == tab['title']:
-                                tab['url'] = history_tab['url']
-                                break
-                
-                elif browser_name == 'Microsoft Edge':
-                    edge_tabs = get_edge_tabs()
-                    for tab in win32_tabs[browser_name]:
-                        for history_tab in edge_tabs:
-                            if history_tab['title'] == tab['title']:
-                                tab['url'] = history_tab['url']
-                                break
-                
-                elif browser_name == 'Mozilla Firefox':
-                    firefox_tabs = get_firefox_tabs()
-                    for tab in win32_tabs[browser_name]:
-                        for history_tab in firefox_tabs:
-                            if history_tab['title'] == tab['title']:
-                                tab['url'] = history_tab['url']
-                                break
-            
-            return win32_tabs
-    
-    # Fallback to database method if win32 not available
     tabs_by_browser = defaultdict(list)
     
-    # Get running processes to see which browsers are active
+    # 1. Detect running browsers
     processes = get_running_processes()
     running_browsers = set()
     
@@ -414,7 +362,7 @@ def get_browser_tabs_all():
     
     print(f"   → Detected running browsers: {running_browsers}")
     
-    # Get tabs for each running browser
+    # 2. Fetch tabs for running browsers using Database methods (Gets ALL tabs, not just active)
     if 'Google Chrome' in running_browsers:
         print("   → Fetching Chrome tabs...")
         chrome_tabs = get_chrome_tabs()
@@ -450,34 +398,144 @@ def get_desktop_applications():
     """Get list of desktop applications currently running"""
     apps = []
     
-    # Common desktop applications
+    # App mappings: Process Name -> Display Name
     desktop_apps = {
-        'notepad.exe': 'Notepad',
-        'Code.exe': 'Visual Studio Code',
-        'EXCEL.EXE': 'Microsoft Excel',
-        'WINWORD.EXE': 'Microsoft Word',
-        'POWERPNT.EXE': 'Microsoft PowerPoint',
-        'spotify.exe': 'Spotify',
-        'Discord.exe': 'Discord',
-        'Telegram.exe': 'Telegram',
-        'WhatsApp.exe': 'WhatsApp',
-        'Zoom.exe': 'Zoom',
-        'Teams.exe': 'Microsoft Teams',
-        'slack.exe': 'Slack',
-        'vlc.exe': 'VLC Media Player',
-        'explorer.exe': 'File Explorer',
-        'notepad++.exe': 'Notepad++',
-        'sublime_text.exe': 'Sublime Text',
-        'pycharm64.exe': 'PyCharm',
-        'idea64.exe': 'IntelliJ IDEA',
-        'studio64.exe': 'Android Studio',
-        'photoshop.exe': 'Adobe Photoshop',
-        'illustrator.exe': 'Adobe Illustrator',
-        'Figma.exe': 'Figma',
-        'gimp.exe': 'GIMP',
-        'obs64.exe': 'OBS Studio',
-        'steamwebhelper.exe': 'Steam',
-    }
+    # System / Default
+    'notepad.exe': 'Notepad',
+    'calc.exe': 'Calculator',
+    'mspaint.exe': 'Paint',
+    'explorer.exe': 'File Explorer',
+    'taskmgr.exe': 'Task Manager',
+    'cmd.exe': 'Command Prompt',
+    'powershell.exe': 'Windows PowerShell',
+    'wt.exe': 'Windows Terminal',
+    'control.exe': 'Control Panel',
+
+    # Browsers
+    'chrome.exe': 'Google Chrome',
+    'msedge.exe': 'Microsoft Edge',
+    'firefox.exe': 'Mozilla Firefox',
+    'opera.exe': 'Opera Browser',
+    'brave.exe': 'Brave Browser',
+    'vivaldi.exe': 'Vivaldi Browser',
+    'tor.exe': 'Tor Browser',
+
+    # Microsoft Office
+    'EXCEL.EXE': 'Microsoft Excel',
+    'WINWORD.EXE': 'Microsoft Word',
+    'POWERPNT.EXE': 'Microsoft PowerPoint',
+    'OUTLOOK.EXE': 'Microsoft Outlook',
+    'ONENOTE.EXE': 'Microsoft OneNote',
+    'MSACCESS.EXE': 'Microsoft Access',
+
+    # Code Editors / IDEs
+    'Code.exe': 'Visual Studio Code',
+    'devenv.exe': 'Visual Studio',
+    'notepad++.exe': 'Notepad++',
+    'sublime_text.exe': 'Sublime Text',
+    'atom.exe': 'Atom Editor',
+    'pycharm64.exe': 'PyCharm',
+    'idea64.exe': 'IntelliJ IDEA',
+    'webstorm64.exe': 'WebStorm',
+    'phpstorm64.exe': 'PhpStorm',
+    'clion64.exe': 'CLion',
+    'rider64.exe': 'Rider',
+    'studio64.exe': 'Android Studio',
+    'eclipse.exe': 'Eclipse IDE',
+    'netbeans64.exe': 'NetBeans IDE',
+
+    # Communication / Meetings
+    'Discord.exe': 'Discord',
+    'Telegram.exe': 'Telegram',
+    'WhatsApp.exe': 'WhatsApp Desktop',
+    'Zoom.exe': 'Zoom',
+    'Teams.exe': 'Microsoft Teams',
+    'slack.exe': 'Slack',
+    'Skype.exe': 'Skype',
+    'Signal.exe': 'Signal',
+    'Viber.exe': 'Viber',
+
+    # Media Players / Streaming
+    'vlc.exe': 'VLC Media Player',
+    'wmplayer.exe': 'Windows Media Player',
+    'iTunes.exe': 'iTunes',
+    'Spotify.exe': 'Spotify',
+    'MusicBee.exe': 'MusicBee',
+    'foobar2000.exe': 'Foobar2000',
+
+    # Design / Creative
+    'photoshop.exe': 'Adobe Photoshop',
+    'illustrator.exe': 'Adobe Illustrator',
+    'InDesign.exe': 'Adobe InDesign',
+    'PremierePro.exe': 'Adobe Premiere Pro',
+    'AfterFX.exe': 'Adobe After Effects',
+    'Lightroom.exe': 'Adobe Lightroom',
+    'Figma.exe': 'Figma',
+    'XD.exe': 'Adobe XD',
+    'gimp.exe': 'GIMP',
+    'krita.exe': 'Krita',
+    'blender.exe': 'Blender',
+    'canva.exe': 'Canva Desktop',
+
+    # Screen Recording / Streaming
+    'obs64.exe': 'OBS Studio',
+    'Streamlabs OBS.exe': 'Streamlabs OBS',
+    'bandicam.exe': 'Bandicam',
+    'camtasia.exe': 'Camtasia',
+
+    # File Compression / ISO
+    'WinRAR.exe': 'WinRAR',
+    '7zFM.exe': '7-Zip',
+    'peazip.exe': 'PeaZip',
+    'PowerISO.exe': 'PowerISO',
+    'UltraISO.exe': 'UltraISO',
+
+    # Cloud Storage / Sync
+    'OneDrive.exe': 'Microsoft OneDrive',
+    'GoogleDriveFS.exe': 'Google Drive',
+    'Dropbox.exe': 'Dropbox',
+    'Box.exe': 'Box Drive',
+
+    # Gaming Launchers
+    'steam.exe': 'Steam',
+    'steamwebhelper.exe': 'Steam',
+    'EpicGamesLauncher.exe': 'Epic Games Launcher',
+    'Battle.net.exe': 'Blizzard Battle.net',
+    'UbisoftConnect.exe': 'Ubisoft Connect',
+    'Origin.exe': 'EA Origin',
+    'EADesktop.exe': 'EA App',
+    'GOG Galaxy.exe': 'GOG Galaxy',
+    'RiotClientServices.exe': 'Riot Client',
+
+    # Virtualization / Containers
+    'VirtualBox.exe': 'Oracle VirtualBox',
+    'vmware.exe': 'VMware Workstation',
+    'Docker Desktop.exe': 'Docker Desktop',
+
+    # Databases / Dev Tools
+    'mysqlworkbench.exe': 'MySQL Workbench',
+    'pgAdmin4.exe': 'pgAdmin',
+    'dbeaver.exe': 'DBeaver',
+    'MongoDBCompass.exe': 'MongoDB Compass',
+    'Postman.exe': 'Postman',
+    'Insomnia.exe': 'Insomnia API Client',
+
+    # Torrent / Downloaders
+    'uTorrent.exe': 'uTorrent',
+    'BitTorrent.exe': 'BitTorrent',
+    'qbittorrent.exe': 'qBittorrent',
+    'IDMan.exe': 'Internet Download Manager',
+    'JDownloader2.exe': 'JDownloader',
+
+    # Utilities / Others
+    'AnyDesk.exe': 'AnyDesk',
+    'TeamViewer.exe': 'TeamViewer',
+    'RustDesk.exe': 'RustDesk',
+    'Everything.exe': 'Everything Search',
+    'ShareX.exe': 'ShareX',
+    'Greenshot.exe': 'Greenshot',
+}   
+
     
     processes = get_running_processes()
     found_apps = set()
@@ -485,11 +543,11 @@ def get_desktop_applications():
     for proc in processes:
         proc_name = proc['name']
         
-        # Check if it's a browser (we'll handle browsers separately)
+        # Skip browsers since they are handled separately
         if proc_name in BROWSER_PROCESSES:
             continue
         
-        # Check if it's a known desktop app
+        # Check against known apps
         if proc_name in desktop_apps:
             app_name = desktop_apps[proc_name]
             if app_name not in found_apps:
@@ -500,7 +558,7 @@ def get_desktop_applications():
                 })
                 found_apps.add(app_name)
     
-    # Sort alphabetically
+    # Sort by name
     apps.sort(key=lambda x: x['name'])
     
     return apps
@@ -520,16 +578,16 @@ def get_current_activities():
         'system_info': {}
     }
     
-    # Get browser tabs using database method
+    # 1. Browsers
     print("   → Checking browsers...")
     browser_tabs = get_browser_tabs_all()
     activities['browsers'] = browser_tabs
     
-    # Get desktop applications
+    # 2. Desktop Apps
     print("   → Checking desktop applications...")
     activities['desktop_apps'] = get_desktop_applications()
     
-    # Add system info
+    # 3. System Info
     try:
         cpu_percent = psutil.cpu_percent(interval=0.5)
         mem = psutil.virtual_memory()
@@ -556,45 +614,48 @@ def format_activities_text(activities, max_message_length=4000):
     
     lines = ["📊 **CURRENT ACTIVITIES**\n"]
     
-    # Browsers Section
+    # Browsers
     if activities['browsers']:
         lines.append("🌐 **BROWSERS:**")
         for browser, tabs in activities['browsers'].items():
-            lines.append(f"\n▫️ **{browser}** ({len(tabs)} tabs)")
+            lines.append(f"\n▫️ **{browser}**")
             if tabs:
-                for i, tab in enumerate(tabs, 1):
-                    title = tab.get('title', 'Unknown')
-                    url = tab.get('url', 'N/A')
+                for i, tab in enumerate(tabs[:15], 1): # Limit to 15 recent tabs per browser
+                    # SAFETY: Escape titles and URLs to prevent parse errors
+                    title = escape_markdown(tab.get('title', 'Unknown'))
+                    url = escape_markdown(tab.get('url', 'N/A'))
                     
-                    # Truncate long titles
+                    # Truncate if too long
                     if len(title) > 60:
                         title = title[:57] + "..."
                     
                     lines.append(f"   {i}. {title}")
                     
-                    # Only show URL if it's not the placeholder
-                    if url and url != 'Install extension for URLs':
+                    # Show URL if valid
+                    if url and url != 'Install extension for URLs' and url != 'Active Window' and url != 'N/A':
                         if len(url) > 100:
                             url = url[:97] + "..."
                         lines.append(f"      🔗 {url}")
             else:
-                lines.append("   (No tabs detected)")
+                lines.append("   (No recent tabs found)")
         lines.append("")
     else:
         lines.append("🌐 **BROWSERS:**")
         lines.append("   (No browsers running)\n")
     
-    # Desktop Applications
+    # Apps
     if activities['desktop_apps']:
         lines.append("🖥️ **DESKTOP APPLICATIONS:**")
         for app in activities['desktop_apps']:
-            lines.append(f"   • {app['name']}")
+            # SAFETY: Escape app name
+            safe_name = escape_markdown(app['name'])
+            lines.append(f"   • {safe_name}")
         lines.append("")
     else:
         lines.append("🖥️ **DESKTOP APPLICATIONS:**")
         lines.append("   (No major applications detected)\n")
     
-    # System Info
+    # System Stats
     if activities['system_info']:
         info = activities['system_info']
         lines.append("⚙️ **SYSTEM STATUS:**")
@@ -604,7 +665,7 @@ def format_activities_text(activities, max_message_length=4000):
     
     full_text = "\n".join(lines)
     
-    # Check if message is too long
+    # Split if too long
     if len(full_text) > max_message_length:
         print(f"   ⚠️ Message too long ({len(full_text)} chars), splitting...")
         return split_long_message(activities, max_message_length)
@@ -619,42 +680,39 @@ def split_long_message(activities, max_length=4000):
     """
     messages = []
     
-    # Message 1: Header + Browser Summary
+    # PART 1: Summary + Start of Browsers
     lines = ["📊 **CURRENT ACTIVITIES**\n"]
     lines.append("🌐 **BROWSERS:**")
     
     if activities['browsers']:
-        total_tabs = sum(len(tabs) for tabs in activities['browsers'].values())
-        lines.append(f"Total: {total_tabs} tabs across {len(activities['browsers'])} browsers\n")
-        
         for browser, tabs in activities['browsers'].items():
-            lines.append(f"▫️ **{browser}**: {len(tabs)} tabs")
+            lines.append(f"▫️ **{browser}**: {len(tabs)} detected tabs")
         
         messages.append("\n".join(lines))
         
-        # Message 2+: Detailed tabs for each browser
+        # Detailed Tab Lists
         for browser, tabs in activities['browsers'].items():
             if tabs:
                 browser_lines = [f"\n🌐 **{browser} Details:**\n"]
                 current_batch = []
                 
-                for i, tab in enumerate(tabs, 1):
-                    title = tab.get('title', 'Unknown')
-                    url = tab.get('url', 'N/A')
+                for i, tab in enumerate(tabs[:20], 1): # Limit split messages too
+                    # SAFETY: Escape titles and URLs
+                    title = escape_markdown(tab.get('title', 'Unknown'))
+                    url = escape_markdown(tab.get('url', 'N/A'))
                     
                     if len(title) > 70:
                         title = title[:67] + "..."
                     
-                    tab_line = f"{i}. {title}"
-                    current_batch.append(tab_line)
+                    current_batch.append(f"{i}. {title}")
                     
-                    # Only add URL if available
-                    if url and url != 'Install extension for URLs':
+                    # Show URL if valid
+                    if url and url != 'Install extension for URLs' and url != 'Active Window' and url != 'N/A':
                         if len(url) > 90:
                             url = url[:87] + "..."
                         current_batch.append(f"   🔗 {url}")
                     
-                    # Check if we're approaching limit
+                    # Check length
                     test_text = "\n".join(browser_lines + current_batch)
                     if len(test_text) > max_length - 300:
                         # Send current batch
@@ -662,20 +720,22 @@ def split_long_message(activities, max_length=4000):
                         browser_lines = [f"\n🌐 **{browser} (continued):**\n"]
                         current_batch = []
                 
-                # Add remaining lines
+                # Remaining items
                 if current_batch:
                     messages.append("\n".join(browser_lines + current_batch))
     else:
         lines.append("   (No browsers running)")
         messages.append("\n".join(lines))
     
-    # Final message: Apps + System Status
+    # PART 2: Apps and System Info
     final_lines = []
     
     if activities['desktop_apps']:
         final_lines.append("\n🖥️ **DESKTOP APPLICATIONS:**")
         for app in activities['desktop_apps']:
-            final_lines.append(f"   • {app['name']}")
+            # SAFETY: Escape app name
+            safe_name = escape_markdown(app['name'])
+            final_lines.append(f"   • {safe_name}")
         final_lines.append("")
     
     if activities['system_info']:
@@ -692,7 +752,7 @@ def split_long_message(activities, max_length=4000):
 
 
 if __name__ == "__main__":
-    # Test the module
+    # Test Output
     activities = get_current_activities()
     print("\n" + "="*60)
     result = format_activities_text(activities)

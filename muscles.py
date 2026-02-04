@@ -11,8 +11,8 @@ import numpy as np
 import requests
 import json
 import activity_monitor
-import clipboard_monitor  # <--- NEW IMPORT ADDED
-from file_finder import find_files_from_query, format_search_results, get_file_path  # <--- FILE FINDER IMPORT
+import clipboard_monitor
+import file_finder  # Uses the new smart finder we just created
 
 PROCESS_NAMES = {
     # Browsers
@@ -138,14 +138,14 @@ def get_laptop_location():
         if not best_result:
             best_result = results[0] 
         
-       
+        
         if len(results) > 1:
             comparison = "\n".join([f"   • {r['source']}: {r['city']}, {r['region']}" for r in results])
             best_result['comparison'] = comparison
         else:
             best_result['comparison'] = None
         
-       
+        
         lat = best_result['latitude']
         lon = best_result['longitude']
         best_result['maps_url'] = f"https://www.google.com/maps?q={lat},{lon}"
@@ -176,7 +176,7 @@ def get_browser_path(browser_name):
     executable = exes.get(browser_name, f"{browser_name}.exe")
     if not executable.endswith(".exe"): executable += ".exe"
     
-   
+    
     path = shutil.which(executable)
     if path: return path
     
@@ -208,7 +208,7 @@ def get_browser_path(browser_name):
 def capture_webcam():
     print("📸 Accessing Webcam...")
     try:
-       
+        
         for i in range(2):
             cam = cv2.VideoCapture(i)
             if cam.isOpened():
@@ -250,7 +250,7 @@ def record_audio(duration=10):
     print(f"🎤 Recording audio for {duration} seconds...")
     
     try:
-     
+      
         recording = sd.rec(
             int(duration * SAMPLE_RATE), 
             samplerate=SAMPLE_RATE, 
@@ -262,7 +262,7 @@ def record_audio(duration=10):
         
         print("✅ Recording complete.")
         
-       
+        
         write(file_path, SAMPLE_RATE, recording)
         
         return file_path
@@ -364,8 +364,6 @@ def check_storage():
                     status_emoji = "🟢"  # Good
                 
                 # FIX: Remove backslashes to prevent Markdown parsing errors
-                # invalid: **C:\** (escapes the closing stars)
-                # valid: **C:**
                 safe_drive_name = partition.mountpoint.replace('\\', '')
                 
                 drive_info = {
@@ -431,7 +429,7 @@ def open_browser(url, browser_name="default"):
     print(f"🌐 Request to open '{url}' in '{browser_name}'")
     
     try:
-       
+        
         if not browser_name or browser_name.lower() == "default":
             webbrowser.open(url)
             return
@@ -453,7 +451,7 @@ def open_browser(url, browser_name="default"):
         webbrowser.open(url)
 
 def close_application(app_name):
-   
+    
     clean_name = app_name.lower()
     for word in ["the ", "app ", "application ", "close ", "open "]:
         clean_name = clean_name.replace(word, "")
@@ -498,13 +496,13 @@ def set_brightness(level):
 
 def execute_find_file(action_data):
     """
-    Execute file finding using the file_finder module
+    Execute file finding using the SMART file_finder module
     Returns file path if found (for Telegram sending), or error message
     """
     print("🔍 Searching for file...")
     
     try:
-        # Get the search query (brain.py now sends "query" instead of time_query/file_type)
+        # Get the search query from brain.py
         query = action_data.get("query")
         
         if not query:
@@ -513,22 +511,19 @@ def execute_find_file(action_data):
             file_type = action_data.get("file_type")
             keyword = action_data.get("keyword")
             
-            if time_query:
-                query = time_query
-            else:
-                parts = []
-                if file_type:
-                    parts.append(file_type)
-                if keyword:
-                    parts.append(keyword)
-                query = " ".join(parts) if parts else "recent files"
+            parts = []
+            if file_type: parts.append(file_type)
+            if keyword: parts.append(keyword)
+            if time_query: parts.append(time_query)
+            query = " ".join(parts) if parts else "recent files"
         
-        # Search for files using the natural language query
+        # Search for files using the SMART query
         print(f"   Query: '{query}'")
-        results = find_files_from_query(query, limit=3)
+        
+        # Uses the new smart finder logic
+        results = file_finder.find_files_from_query(query, limit=3)
         
         if not results:
-            # No files found - return helpful message
             print("   ❌ No matching files found")
             return {
                 "status": "not_found",
@@ -541,11 +536,9 @@ def execute_find_file(action_data):
         file_name = top_result['file_name']
         confidence = top_result.get('confidence_score', 0)
         
-        # --- NEW: Extract Metadata ---
+        # Metadata
         app_used = top_result.get('app_used', 'Unknown App')
         timestamp = top_result.get('timestamp', 'Unknown Time')
-        duration = top_result.get('duration_seconds', 0)
-        # -----------------------------
         
         print(f"   ✅ Found: {file_name} (confidence: {confidence}%)")
         
@@ -553,34 +546,28 @@ def execute_find_file(action_data):
         if not os.path.exists(file_path):
             print(f"   ⚠️ File was moved/deleted: {file_path}")
             
-            # If we have multiple results, try the next one
+            # Try alternate results
             if len(results) > 1:
                 for result in results[1:]:
                     if os.path.exists(result['file_path']):
                         file_path = result['file_path']
                         file_name = result['file_name']
-                        
-                        # Update metadata for the alternate file
                         app_used = result.get('app_used', 'Unknown App')
                         timestamp = result.get('timestamp', 'Unknown Time')
-                        duration = result.get('duration_seconds', 0)
-                        confidence = result.get('confidence_score', 0)
-                        
                         print(f"   ✅ Using alternate: {file_name}")
                         break
                 else:
-                    # None of the results exist
                     return {
                         "status": "file_deleted",
-                        "message": f"❌ File was found but no longer exists:\n{file_name}\n\nIt may have been moved or deleted."
+                        "message": f"❌ File was found but no longer exists:\n{file_name}"
                     }
             else:
                 return {
                     "status": "file_deleted",
-                    "message": f"❌ File was found but no longer exists:\n{file_name}\n\nIt may have been moved or deleted."
+                    "message": f"❌ File was found but no longer exists:\n{file_name}"
                 }
         
-        # Check file size (Telegram limit is 50MB, warn if >20MB)
+        # Check file size (Telegram limit)
         try:
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         except:
@@ -589,20 +576,18 @@ def execute_find_file(action_data):
         if file_size_mb > 50:
             return {
                 "status": "too_large",
-                "message": f"❌ File is too large to send via Telegram:\n{file_name}\n\nSize: {file_size_mb:.1f} MB (Telegram limit: 50 MB)\n\nPath: {file_path}"
+                "message": f"❌ File is too large to send via Telegram:\n{file_name}\nSize: {file_size_mb:.1f} MB"
             }
         
-        # Success - return file info for Telegram to send
+        # Success
         return {
             "status": "found",
             "file_path": file_path,
             "file_name": file_name,
             "file_size_mb": file_size_mb,
             "confidence": confidence,
-            "app_used": app_used,       # <--- Passing this to Telegram
-            "timestamp": timestamp,     # <--- Passing this to Telegram
-            "duration": duration,       # <--- Passing this to Telegram
-            "results": results          # All results for reference
+            "app_used": app_used,
+            "timestamp": timestamp
         }
         
     except Exception as e:

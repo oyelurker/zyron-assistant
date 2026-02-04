@@ -7,6 +7,9 @@ import os
 import json
 import time
 import threading
+import sqlite3
+import shutil
+import urllib.parse
 from datetime import datetime, timedelta
 from collections import defaultdict
 import win32gui
@@ -23,6 +26,15 @@ file_activity_log = []
 tracking_active = False
 tracker_thread = None
 currently_open_files = {}  # Track files currently being accessed
+
+# List of apps that are browsers (need special handling for local files)
+BROWSER_APPS = {
+    'chrome.exe': 'Google Chrome',
+    'msedge.exe': 'Microsoft Edge',
+    'brave.exe': 'Brave Browser',
+    'firefox.exe': 'Mozilla Firefox',
+    'opera.exe': 'Opera'
+}
 
 # System/temp paths to ignore
 IGNORE_PATHS = [
@@ -106,6 +118,75 @@ def should_ignore_file(file_path):
     return False
 
 
+def get_browser_local_file(browser_process_name, window_title):
+    """
+    If the active window is a browser, this checks the history
+    to see if the user is looking at a local file (file:///...)
+    """
+    try:
+        history_db = None
+        user_data_dir = os.environ.get('LOCALAPPDATA', '')
+
+        # Define paths to History DB based on browser
+        if browser_process_name == 'chrome.exe':
+            history_db = os.path.join(user_data_dir, 'Google', 'Chrome', 'User Data', 'Default', 'History')
+        elif browser_process_name == 'msedge.exe':
+            history_db = os.path.join(user_data_dir, 'Microsoft', 'Edge', 'User Data', 'Default', 'History')
+        elif browser_process_name == 'brave.exe':
+            history_db = os.path.join(user_data_dir, 'BraveSoftware', 'Brave-Browser', 'User Data', 'Default', 'History')
+        
+        if not history_db or not os.path.exists(history_db):
+            return None
+
+        # Copy DB to temp to avoid locking issues
+        temp_db = os.path.join(os.environ.get('TEMP', ''), 'tracker_history_temp.db')
+        try:
+            shutil.copy2(history_db, temp_db)
+            
+            conn = sqlite3.connect(temp_db)
+            cursor = conn.cursor()
+            
+            # IMPROVEMENT: Get last 20 items, not just 1.
+            # This helps if the user opened 3 tabs and we want to find the one matching the window title.
+            cursor.execute("SELECT url, title FROM urls ORDER BY last_visit_time DESC LIMIT 20")
+            rows = cursor.fetchall()
+            conn.close()
+            
+            for row in rows:
+                url, db_title = row
+                if not url: continue
+
+                # CHECK: Is it a local file?
+                if url.startswith('file:///'):
+                    # Convert file:///C:/Users/Name%20Here/Doc.pdf -> C:\Users\Name Here\Doc.pdf
+                    # 1. Unquote removes %20 and other URL encoding
+                    decoded_url = urllib.parse.unquote(url)
+                    # 2. Strip prefix and fix slashes
+                    clean_path = decoded_url.replace('file:///', '').replace('/', '\\')
+                    
+                    # 3. Fuzzy Match: Check if the filename appears in the Window Title
+                    # Window Title: "Project Proposal.pdf - Google Chrome"
+                    # File Name: "Project Proposal.pdf"
+                    filename = os.path.basename(clean_path)
+                    
+                    if filename and (filename.lower() in window_title.lower()):
+                        # Verify file actually exists
+                        if os.path.exists(clean_path):
+                            return clean_path
+        except Exception as e:
+            # print(f"DB Error: {e}")
+            pass
+        finally:
+            if os.path.exists(temp_db):
+                try: os.remove(temp_db)
+                except: pass
+
+    except Exception as e:
+        print(f"Error checking browser file: {e}")
+    
+    return None
+
+
 def get_active_window_file():
     """Get file path from currently active window using multiple detection methods"""
     try:
@@ -125,11 +206,19 @@ def get_active_window_file():
         # Get process info
         try:
             process = psutil.Process(pid)
-            app_name = process.name()
+            app_name = process.name().lower()
             potential_paths = []
 
             # DEBUG: Un-comment this line if you want to see every window check in console
             # print(f"[DEBUG] Checking: '{window_title}' ({app_name})")
+
+            # --- METHOD 0: Browser Detection (ENHANCED) ---
+            # If app is a browser, check if it's viewing a local file via History
+            if app_name in BROWSER_APPS:
+                browser_file_path = get_browser_local_file(app_name, window_title)
+                if browser_file_path:
+                    # Return immediately if we found a browser file
+                    return browser_file_path, BROWSER_APPS[app_name]
 
             # --- METHOD 1: Command Line Arguments (Most Reliable for Notepad, etc.) ---
             try:
