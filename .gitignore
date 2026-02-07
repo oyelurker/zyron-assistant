@@ -1,0 +1,25 @@
+# Secrets (User tokens)
+.env
+
+# Python junk
+__pycache__/
+*.png
+
+# Generated Native Host Files (Machine Specific)
+src/zyron/core/zyron_native_host.json
+zyron_host.bat
+
+# Virtual Environment (Too big to upload)
+venv/
+env/
+
+# User Data (Don't upload your memory or photos)
+blacklist.json
+long_term_memory.json
+clipboard_history.json
+file_activity_log.json
+*.jpg
+*.png
+
+#local agent
+.agents/

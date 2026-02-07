@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "zyron-assistant"
+version = "1.4.0"
+description = "Your Intelligent Desktop Companion - 100% Local, 100% Private"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [
+    { name = "Surajkumar5050", email = "surajkumarsyn479@gmail.com" },
+]
+maintainers = [
+    { name = "ThaRealJozef", email = "yjrhider@gmail.com" },
+]
+keywords = ["assistant", "ai", "automation", "local", "privacy", "ollama"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: Microsoft :: Windows",
+]
+dependencies = [
+    "SpeechRecognition",
+    "pyttsx3",
+    "pyaudio",  # Optional but good to keep for legacy online mode
+    "pillow",
+    "textblob",
+    "requests",
+    "python-telegram-bot",
+    "psutil",
+    "pywin32",
+    "pyautogui",
+    "opencv-python",
+    "wmi",
+    "comtypes",
+    "ollama",
+    "vosk",
+    "sounddevice",
+    "python-dotenv",
+    "screen-brightness-control",
+    "scipy",
+]
+
+[project.scripts]
+zyron = "zyron.main:main"
+
+[project.urls]
+Homepage = "https://github.com/Surajkumar5050/zyron-assistant"
+Repository = "https://github.com/Surajkumar5050/zyron-assistant.git"
+Issues = "https://github.com/Surajkumar5050/zyron-assistant/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/zyron"]
