@@ -213,6 +213,7 @@ async def handle_media_callback(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Importing system--functions
     from zyron.agents.system import control_media, set_volume
+    from telegram.error import BadRequest
     
     # Handle media playback controls
     if data.startswith("media_"):
@@ -228,12 +229,16 @@ async def handle_media_callback(update: Update, context: ContextTypes.DEFAULT_TY
         media_action = action_map.get(action, action)
         result = control_media(media_action)
         
-        # Up Message with confirmation
-        await query.edit_message_text(
-            f"🎵 **Media Controller**\n\n✅ {result}",
-            parse_mode='Markdown',
-            reply_markup=query.message.reply_markup  # Keep the keyboard
-        )
+        # Update message with confirmation
+        try:
+            await query.edit_message_text(
+                f"🎵 **Media Controller**\n\n✅ {result}",
+                parse_mode='Markdown',
+                reply_markup=query.message.reply_markup  # Keep the keyboard
+            )
+        except BadRequest:
+            # Message content is the same, ignore this error
+            pass
     
     # Volume controls handler
     elif data.startswith("vol_"):
@@ -243,11 +248,15 @@ async def handle_media_callback(update: Update, context: ContextTypes.DEFAULT_TY
         result = set_volume(level)
         
         # Updates message with confirmation
-        await query.edit_message_text(
-            f"🎵 **Media Controller**\n\n✅ {result}",
-            parse_mode='Markdown',
-            reply_markup=query.message.reply_markup  # Keep the keyboard
-        )
+        try:
+            await query.edit_message_text(
+                f"🎵 **Media Controller**\n\n✅ {result}",
+                parse_mode='Markdown',
+                reply_markup=query.message.reply_markup  # Keep the keyboard
+            )
+        except BadRequest:
+            # Message content is the same, ignore this error
+            pass
 
 
 async def camera_monitor_loop(bot, chat_id):
@@ -377,8 +386,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- MEDIA CONTROLLER ---
     elif "/media" in lower_text:
         # Send inline keyboard for media controls
-        if status_msg: await status_msg.delete()
-        
         keyboard = [
             [
                 InlineKeyboardButton("⏮️ Prev", callback_data="media_prev"),
