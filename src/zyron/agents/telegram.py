@@ -82,17 +82,20 @@ logging.basicConfig(
 )
 
 def get_main_keyboard():
-    # Main control keyboard
+    """Main control keyboard with grouped functionality"""
     keyboard = [
-        [KeyboardButton("/screenshot"), KeyboardButton("/camera_on"), KeyboardButton("/camera_off")],
-        [KeyboardButton("🚨 PANIC")],
-        [KeyboardButton("/sleep"), KeyboardButton("/restart"), KeyboardButton("/shutdown")],
-        [KeyboardButton("/batterypercentage"), KeyboardButton("/systemhealth")],
-        [KeyboardButton("/location"), KeyboardButton("/recordaudio")],
-        [KeyboardButton("/clear_bin"), KeyboardButton("/storage")], 
-        [KeyboardButton("/activities"), KeyboardButton("/copied_texts")],
-        [KeyboardButton("☕ Stay Awake"), KeyboardButton("💤 Normal Mode")],
-        [KeyboardButton("/media"), KeyboardButton("/focus_mode_on"), KeyboardButton("/blacklist")]
+        # Row 1: Capture
+        [KeyboardButton("📸 Screenshot"), KeyboardButton("📹 Camera"), KeyboardButton("⏹️ Stop")],
+        # Row 2: Emergency
+        [KeyboardButton("🚨 Panic Mode")],
+        # Row 3: Power
+        [KeyboardButton("💤 Sleep"), KeyboardButton("🔄 Restart"), KeyboardButton("🛑 Shutdown")],
+        # Row 4: Status
+        [KeyboardButton("🔋 Battery"), KeyboardButton("⚙️ System Health")],
+        # Row 5: Utilities
+        [KeyboardButton("📁 File Search"), KeyboardButton("📍 Location"), KeyboardButton("☕ Caffeine")],
+        # Row 6: Media
+        [KeyboardButton("⏯️ Media Controls")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -351,23 +354,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Pre-process common commands
     command_json = None
     
-    if "/battery" in lower_text or "battery" in lower_text:
+    if "/battery" in lower_text or "battery" in lower_text or "🔋 battery" in lower_text:
         command_json = {"action": "check_battery"}
-    elif "/systemhealth" in lower_text or "system health" in lower_text:
+    elif "/systemhealth" in lower_text or "system health" in lower_text or "⚙️ system health" in lower_text:
         command_json = {"action": "check_health"}
-    elif ("/screenshot" in lower_text or "screenshot" in lower_text) and not ("tab" in lower_text or "browser" in lower_text):
+    elif ("/screenshot" in lower_text or "screenshot" in lower_text or "📸 screenshot" in lower_text) and not ("tab" in lower_text or "browser" in lower_text):
         command_json = {"action": "take_screenshot"}
-    elif "/sleep" in lower_text:
+    elif "/sleep" in lower_text or "💤 sleep" in lower_text:
         command_json = {"action": "system_sleep"}
-    elif "/shutdown" in lower_text or "shutdown" in lower_text:
+    elif "/shutdown" in lower_text or "shutdown" in lower_text or "🛑 shutdown" in lower_text:
         command_json = {"action": "shutdown_pc"}
-    elif "/restart" in lower_text or "restart" in lower_text:
+    elif "/restart" in lower_text or "restart" in lower_text or "🔄 restart" in lower_text:
         command_json = {"action": "restart_pc"}
-    elif "/panic" in lower_text or "🚨 panic" in lower_text:
+    elif "/panic" in lower_text or "🚨 panic" in lower_text or "panic mode" in lower_text:
         command_json = {"action": "system_panic"}
-    elif "/camera_on" in lower_text:
+    elif "/camera_on" in lower_text or "📹 camera" in lower_text:
         command_json = {"action": "camera_stream", "value": "on"}
-    elif "/camera_off" in lower_text:
+    elif "/camera_off" in lower_text or "⏹️ stop" in lower_text:
         command_json = {"action": "camera_stream", "value": "off"}
     elif "/recordaudio" in lower_text:
         parts = lower_text.split()
@@ -399,7 +402,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
             
-    elif "/location" in lower_text or any(x in lower_text for x in ["my location", "where am i", "laptop location", "where is my laptop", "find location"]):
+    elif "/location" in lower_text or "📍 location" in lower_text or any(x in lower_text for x in ["my location", "where am i", "laptop location", "where is my laptop", "find location"]):
         command_json = {"action": "get_location"}
     # --- EXISTING BUTTON TRIGGERS ---
     elif "/clear_bin" in lower_text or "clear bin" in lower_text:
@@ -410,7 +413,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         command_json = {"action": "get_activities"}
     
     # --- MEDIA CONTROLLER ---
-    elif "/media" in lower_text:
+    elif "/media" in lower_text or "⏯️ media" in lower_text or "media controls" in lower_text:
         # Send inline keyboard for media controls
         keyboard = [
             [
@@ -437,6 +440,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- NEW CLIPBOARD TRIGGER ---
     elif "/copied_texts" in lower_text or any(x in lower_text for x in ["copied texts", "clipboard history", "what did i copy", "show copied"]):
         command_json = {"action": "get_clipboard_history"}
+    
+    # --- FILE SEARCH BUTTON ---
+    elif "📁 file search" in lower_text:
+        await update.message.reply_text(
+            "🔍 **File Search**\n\nTo search for a file, just describe it:\n• `find my video from yesterday`\n• `send me that PDF about python`\n• `show me recent screenshots`\n\nI'll use AI to find the most relevant file!",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard()
+        )
+        return
 
     # --- FEATURE #11: FOCUS MODE COMMANDS ---
     elif "/focus_mode_on" in lower_text or "focus on" in lower_text:
@@ -459,7 +471,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             command_json = {"action": "focus_mode", "sub_action": "status"}
 
     # --- CAFFEINE MODE (KEEP AWAKE) COMMANDS ---
-    elif "/caffeine" in lower_text:
+    elif "/caffeine" in lower_text or "☕ caffeine" in lower_text:
         # Parse argument: on or off
         parts = lower_text.split()
         if len(parts) >= 2:
@@ -679,23 +691,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             location_data = execute_command(command_json)
             
             if location_data:
-                # Format location message
-                location_text = f"""🌍 **Laptop Location**
+                # Format location message with standardized header
+                location_text = f"""<b>📍 LOCATION</b>
+────────────────────────
+🌆 <b>Location:</b> {location_data['city']}, {location_data['region']}
+🏳️ <b>Country:</b> {location_data['country']} ({location_data['country_code']})
+📮 <b>Postal:</b> {location_data['postal']}
+🌐 <b>IP:</b> {location_data['ip']}
+📡 <b>ISP:</b> {location_data['org']}
+🕐 <b>Timezone:</b> {location_data['timezone']}
 
-🌆 **Location:** {location_data['city']}, {location_data['region']}
-🏳️ **Country:** {location_data['country']} ({location_data['country_code']})
-📮 **Postal Code:** {location_data['postal']}
-🌐 **IP Address:** {location_data['ip']}
-📡 **ISP:** {location_data['org']}
-🕐 **Timezone:** {location_data['timezone']}
+📌 <b>Coordinates:</b>
+• Lat: {location_data['latitude']}
+• Lon: {location_data['longitude']}
 
-📌 **Coordinates:**
-Latitude: {location_data['latitude']}
-Longitude: {location_data['longitude']}
+🔍 <b>Source:</b> {location_data['source']}
+────────────────────────
 
-🔍 **Data Source:** {location_data['source']}
-
-🗺️ [**Open in Google Maps**]({location_data['maps_url']})
+🗺️ <a href=\"{location_data['maps_url']}\">Open in Google Maps</a>
 """
                 
                 # Add comparison if multiple sources were checked
@@ -707,7 +720,7 @@ Longitude: {location_data['longitude']}
                 # Send location as text
                 await update.message.reply_text(
                     location_text,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     disable_web_page_preview=False,
                     reply_markup=get_main_keyboard()
                 )
