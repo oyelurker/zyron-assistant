@@ -65,10 +65,12 @@ def _caffeine_loop():
     
     while CAFFEINE_ACTIVE:
         try:
-            # Micro mouse movement - imperceptible to user
-            pyautogui.moveRel(1, 1)
-            pyautogui.moveRel(-1, -1)
-            print("   🔄 Jiggle... (system awake)")
+            # More pronounced mouse movement to reset Windows idle timer
+            pyautogui.moveRel(10, 0)
+            time.sleep(0.5)  # Brief pause between movements
+            pyautogui.moveRel(-10, 0)
+            timestamp = time.strftime('%H:%M:%S')
+            print(f"   🔄 Jiggle at {timestamp}... (system awake)")
         except Exception as e:
             print(f"   ⚠️ Jiggle error: {e}")
         
