@@ -125,13 +125,15 @@ async def handle_clipboard_callback(update: Update, context: ContextTypes.DEFAUL
             text = item['text']
             timestamp = item['timestamp']
             
-            # Send the text with formatting
+            # Send the text with standardized formatting
             await query.message.reply_text(
-                f"📋 **Copied Text #{index + 1}**\n"
-                f"🕐 {timestamp}\n\n"
-                f"```\n{text}\n```\n\n"
-                f"✅ _Tap the code block above to copy to your clipboard_",
-                parse_mode='Markdown',
+                f"<b>📋 CLIPBOARD ITEM #{index + 1}</b>\n"
+                f"────────────────────────\n"
+                f"🕐 <b>Time:</b> {timestamp}\n\n"
+                f"<code>{text}</code>\n"
+                f"────────────────────────\n\n"
+                f"✅ <i>Tap the code block above to copy</i>",
+                parse_mode='HTML',
                 reply_markup=get_main_keyboard()
             )
         else:
@@ -167,15 +169,18 @@ async def zombie_alert_callback(bot, chat_id, zombie_list):
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message = (
-            f"🧟 **Zombie Process Detected!**\n\n"
-            f"**App:** `{name}`\n"
-            f"**Memory:** {ram} MB\n"
-            f"**Idle Time:** {idle}\n\n"
-            f"This process is consuming resources but hasn't been used in hours. What should I do?"
+            f"<b>🧟 ZOMBIE PROCESS DETECTED</b>\n"
+            f"────────────────────────\n"
+            f"<code>Process: {name}\n"
+            f"PID: {pid}\n"
+            f"Memory: {ram} MB\n"
+            f"Idle: {idle}</code>\n"
+            f"────────────────────────\n\n"
+            f"⚠️ This process is consuming resources but hasn't been used in hours."
         )
         
         try:
-            await bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown', reply_markup=reply_markup)
+            await bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML', reply_markup=reply_markup)
         except Exception as e:
             print(f"⚠️ Failed to send Zombie Alert: {e}")
 
@@ -915,13 +920,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         m, s = divmod(duration, 60)
                         duration_str = f"{m}m {s}s"
                     
-                    # Create Detailed Caption
+                    # Create Detailed Caption with structured formatting
                     caption_text = (
-                        f"✅ **Found:** {file_name}\n"
-                        f"📱 **App:** {app_used}\n"
-                        f"📅 **Time:** {timestamp}\n"
-                        f"⏱️ **Duration:** {duration_str}\n"
-                        f"🎯 **Confidence:** {confidence}%"
+                        f"<b>📁 FILE FOUND</b>\n"
+                        f"────────────────────────\n"
+                        f"<b>File:</b> {file_name}\n"
+                        f"<b>App Used:</b> {app_used}\n"
+                        f"<b>Timestamp:</b> {timestamp}\n"
+                        f"<b>Duration:</b> {duration_str}\n"
+                        f"<b>Confidence:</b> {confidence}%\n"
+                        f"────────────────────────"
                     )
                     # -----------------------------
                     
@@ -944,7 +952,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         await update.message.reply_document(
                             document=open(file_path, 'rb'),
                             caption=caption_text,
-                            parse_mode='Markdown',
+                            parse_mode='HTML',
                             reply_markup=get_main_keyboard()
                         )
                         await upload_msg.delete()
@@ -1487,13 +1495,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             try: await loader.edit_text("❌ No interactive elements found.")
                             except: await update.message.reply_text("❌ No interactive elements found.")
                         else:
-                            lines = ["🎯 **Interactive Elements:**\n"]
+                            lines = ["<b>🎯 INTERACTIVE ELEMENTS</b>\n────────────────────────"]
                             for el in elements:
-                                lines.append(f"`[{el['id']}]` {el['text']} ({el['type']})")
+                                lines.append(f"<code>[{el['id']}]</code> <b>{el['text']}</b> ({el['type']})")
                             msg = "\n".join(lines)
                             if len(msg) > 4000: msg = msg[:4000] + "\n...(truncated)"
-                            try: await loader.edit_text(msg, parse_mode='Markdown')
-                            except: await update.message.reply_text(msg, parse_mode='Markdown')
+                            try: await loader.edit_text(msg, parse_mode='HTML')
+                            except: await update.message.reply_text(msg, parse_mode='HTML')
                     else:
                         err_msg = f"❌ Scan failed: {result.get('error') if result else 'Unknown'}"
                         try: await loader.edit_text(err_msg)
