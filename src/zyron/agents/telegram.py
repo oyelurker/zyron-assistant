@@ -106,7 +106,9 @@ def get_utility_keyboard():
         [KeyboardButton("☕ Caffeine"), KeyboardButton("📋 Clipboard"), KeyboardButton("🗑️ Clear Bin")],
         # Row 2: Advanced
         [KeyboardButton("🔍 Scan Page"), KeyboardButton("💿 Storage"), KeyboardButton("📊 Activities")],
-        # Row 3: Navigation
+        # Row 3: Media
+        [KeyboardButton("🎙️ Record Audio")],
+        # Row 4: Navigation
         [KeyboardButton("🔙 Back to Main Menu")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -319,10 +321,12 @@ async def handle_caffeine_callback(update: Update, context: ContextTypes.DEFAULT
     if data == "caffeine_on":
         result = toggle_caffeine(True)
         msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
-    elif data == "caffeine_on_1h":
-        # Future: Implement timed caffeine
-        result = toggle_caffeine(True) 
-        msg_text = f"☕ **Caffeine Mode**\n\n✅ Enabled for 1 hour (Timer not yet implemented)"
+    elif data == "caffeine_1h":
+        result = toggle_caffeine(True, duration=60) 
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
+    elif data == "caffeine_3h":
+        result = toggle_caffeine(True, duration=180) 
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
     elif data == "caffeine_off":
         result = toggle_caffeine(False)
         msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
@@ -336,6 +340,38 @@ async def handle_caffeine_callback(update: Update, context: ContextTypes.DEFAULT
         )
     except Exception:
         pass
+
+
+@auth_required
+async def handle_audio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles Audio Dashboard buttons."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    chat_id = update.effective_chat.id
+    
+    # Importing system--functions
+    from zyron.agents.system import record_audio
+    
+    if data.startswith("aud_rec_"):
+        duration_str = data.split("_")[2]
+        duration = int(duration_str)
+        
+        await query.edit_message_text(f"🎙️ Recording for {duration} seconds...", parse_mode='Markdown')
+        
+        # Run recording in background to not block
+        def record_task():
+            path = record_audio(duration)
+            return path
+            
+        loop = asyncio.get_running_loop()
+        file_path = await loop.run_in_executor(None, record_task)
+        
+        if file_path and os.path.exists(file_path):
+             await context.bot.send_voice(chat_id=chat_id, voice=open(file_path, 'rb'), caption=f"🎙️ Audio Recording ({duration}s)")
+             await context.bot.send_message(chat_id, "✅ Recording sent.", reply_markup=get_main_keyboard())
+        else:
+             await context.bot.send_message(chat_id, "❌ Recording failed.", reply_markup=get_main_keyboard())
 
 
 
@@ -502,8 +538,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    elif "/recordaudio" in lower_text:
-        parts = lower_text.split()
+    elif "/recordaudio" in lower_text or "record audio" in lower_text or "🎙️ record audio" in lower_text:
+        # Check if it is the button press (contains emoji or multiple words that are not args)
+        if "🎙️ record audio" in lower_text:
+            parts = [] # Force dashboard
+        else:
+            parts = lower_text.split()
+            
         if len(parts) > 1:
             arg = parts[1]
             try:
@@ -525,10 +566,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Invalid format. try `/recordaudio 10s` or `/recordaudio 1m`.", reply_markup=get_main_keyboard())
                 return
         else:
+            # Create inline keyboard for Audio
+            keyboard = [
+                [
+                    InlineKeyboardButton("🎙️ Record 10s", callback_data="aud_rec_10"),
+                    InlineKeyboardButton("🎙️ Record 30s", callback_data="aud_rec_30")
+                ],
+                [
+                    InlineKeyboardButton("🎙️ Record 1 Minute", callback_data="aud_rec_60")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await update.message.reply_text(
-                "🎙️ **Audio Recording**\n\nPlease specify your desired duration. For example:\n• `/recordaudio 10s` (for 10 seconds)\n• `/recordaudio 2m` (for 2 minutes)\n\n*Maximum duration is 1 hour.*", 
+                "🎙️ **Audio Dashboard**\n\nSelect duration:",
                 parse_mode='Markdown',
-                reply_markup=get_main_keyboard()
+                reply_markup=reply_markup
             )
             return
             
@@ -622,10 +675,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- CAFFEINE MODE (KEEP AWAKE) COMMANDS ---
     elif "/caffeine" in lower_text or "☕ caffeine" in lower_text:
         # Create inline keyboard for Caffeine
+        # Create inline keyboard for Caffeine
         keyboard = [
             [
                 InlineKeyboardButton("✅ Enable (Keep Awake)", callback_data="caffeine_on"),
-                InlineKeyboardButton("❌ Disable (Normal)", callback_data="caffeine_off")
+                InlineKeyboardButton("❌ Disable", callback_data="caffeine_off")
+            ],
+            [
+                InlineKeyboardButton("☕ 1 Hour", callback_data="caffeine_1h"),
+                InlineKeyboardButton("☕ 3 Hours", callback_data="caffeine_3h")
             ]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1740,6 +1798,7 @@ if __name__ == "__main__":
         application.add_handler(CallbackQueryHandler(handle_media_callback, pattern="^(media_|vol_)"))
         application.add_handler(CallbackQueryHandler(handle_caffeine_callback, pattern="^caffeine_"))
         application.add_handler(CallbackQueryHandler(handle_camera_callback, pattern="^cam_"))
+        application.add_handler(CallbackQueryHandler(handle_audio_callback, pattern="^aud_"))
         application.add_handler(MessageHandler(filters.TEXT, handle_message))
         
         # Run
@@ -1763,6 +1822,7 @@ if __name__ == "__main__":
             application.add_handler(CallbackQueryHandler(handle_media_callback, pattern="^(media_|vol_)"))
             application.add_handler(CallbackQueryHandler(handle_caffeine_callback, pattern="^caffeine_"))
             application.add_handler(CallbackQueryHandler(handle_camera_callback, pattern="^cam_"))
+            application.add_handler(CallbackQueryHandler(handle_audio_callback, pattern="^aud_"))
             application.add_handler(MessageHandler(filters.TEXT, handle_message))
 
         application.run_polling()
