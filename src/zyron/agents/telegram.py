@@ -93,9 +93,21 @@ def get_main_keyboard():
         # Row 4: Status
         [KeyboardButton("🔋 Battery"), KeyboardButton("⚙️ System Health")],
         # Row 5: Utilities
-        [KeyboardButton("📁 File Search"), KeyboardButton("📍 Location"), KeyboardButton("☕ Caffeine")],
+        [KeyboardButton("📁 File Search"), KeyboardButton("📍 Location"), KeyboardButton("🧩 More Tools...")],
         # Row 6: Media
         [KeyboardButton("⏯️ Media Controls")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_utility_keyboard():
+    """Secondary keyboard for extra utilities"""
+    keyboard = [
+        # Row 1: Quick Actions
+        [KeyboardButton("☕ Caffeine"), KeyboardButton("📋 Clipboard"), KeyboardButton("🗑️ Clear Bin")],
+        # Row 2: Advanced
+        [KeyboardButton("🔍 Scan Page"), KeyboardButton("💿 Storage"), KeyboardButton("📊 Activities")],
+        # Row 3: Navigation
+        [KeyboardButton("🔙 Back to Main Menu")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -410,11 +422,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "/location" in lower_text or "📍 location" in lower_text or any(x in lower_text for x in ["my location", "where am i", "laptop location", "where is my laptop", "find location"]):
         command_json = {"action": "get_location"}
     # --- EXISTING BUTTON TRIGGERS ---
-    elif "/clear_bin" in lower_text or "clear bin" in lower_text:
+    elif "/clear_bin" in lower_text or "clear bin" in lower_text or "🗑️ clear bin" in lower_text:
         command_json = {"action": "clear_recycle_bin"}
-    elif "/storage" in lower_text or "check storage" in lower_text:
+    elif "/storage" in lower_text or "check storage" in lower_text or "💿 storage" in lower_text:
         command_json = {"action": "check_storage"}
-    elif "/activities" in lower_text or "activities" in lower_text:
+    elif "/activities" in lower_text or "activities" in lower_text or "📊 activities" in lower_text:
         command_json = {"action": "get_activities"}
     
     # --- MEDIA CONTROLLER ---
@@ -442,8 +454,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return  # Exit early since we handled this
     
-    # --- NEW CLIPBOARD TRIGGER ---
-    elif "/copied_texts" in lower_text or any(x in lower_text for x in ["copied texts", "clipboard history", "what did i copy", "show copied"]):
+    # --- MORE TOOLS MENU HANDLER ---
+    elif "🧩 more tools" in lower_text:
+        await update.message.reply_text(
+            "🧩 **More Tools**\nSelect a utility:",
+            parse_mode='Markdown',
+            reply_markup=get_utility_keyboard()
+        )
+        return
+
+    # --- BACK TO MAIN MENU HANDLER ---
+    elif "🔙 back to main menu" in lower_text:
+        await update.message.reply_text(
+            "🏠 **Main Menu**",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    # --- CLIIPBOARD & UTILITY HANDLERS ---
+    # Triggered by buttons in "More Tools" menu
+    elif "/copied_texts" in lower_text or "📋 clipboard" in lower_text or any(x in lower_text for x in ["copied texts", "clipboard history", "what did i copy", "show copied"]):
         command_json = {"action": "get_clipboard_history"}
     
     # --- FILE SEARCH BUTTON ---
@@ -511,7 +542,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "/read" in lower_text or "read page" in lower_text:
         command_json = {"action": "browser_nav", "sub_action": "read"}
         
-    elif "/scan" in lower_text:
+    elif "/scan" in lower_text or "🔍 scan page" in lower_text:
         command_json = {"action": "browser_nav", "sub_action": "scan"}
         
     elif "/scroll" in lower_text or "scroll down" in lower_text:
