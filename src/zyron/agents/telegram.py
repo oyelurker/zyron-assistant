@@ -85,7 +85,7 @@ def get_main_keyboard():
     """Main control keyboard with grouped functionality"""
     keyboard = [
         # Row 1: Capture
-        [KeyboardButton("📸 Screenshot"), KeyboardButton("📹 Camera"), KeyboardButton("⏹️ Stop")],
+        [KeyboardButton("📸 Screenshot"), KeyboardButton("📹 Camera")],
         # Row 2: Emergency
         [KeyboardButton("🚨 Panic Mode")],
         # Row 3: Power
@@ -305,6 +305,98 @@ async def handle_media_callback(update: Update, context: ContextTypes.DEFAULT_TY
             pass
 
 
+@auth_required
+async def handle_caffeine_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles button clicks for Caffeine Mode."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    # Importing system--functions
+    from zyron.agents.system import toggle_caffeine
+    
+    if data == "caffeine_on":
+        result = toggle_caffeine(True)
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
+    elif data == "caffeine_on_1h":
+        # Future: Implement timed caffeine
+        result = toggle_caffeine(True) 
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ Enabled for 1 hour (Timer not yet implemented)"
+    elif data == "caffeine_off":
+        result = toggle_caffeine(False)
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
+    
+    # Update message
+    try:
+        await query.edit_message_text(
+            msg_text,
+            parse_mode='Markdown',
+            reply_markup=query.message.reply_markup
+        )
+    except Exception:
+        pass
+
+
+
+async def camera_burst_loop(bot, chat_id, count):
+    """Takes 'count' photos with a delay."""
+    global CAMERA_ACTIVE
+    CAMERA_ACTIVE = True
+    
+    try:
+        status_msg = await bot.send_message(chat_id, f"📸 Starting Burst: {count} photos...")
+    except: pass
+    
+    for i in range(count):
+        if not CAMERA_ACTIVE:
+            try: await bot.send_message(chat_id, "⏹️ Burst Stopped.")
+            except: pass
+            return
+
+        photo_path = capture_webcam()
+        if photo_path and os.path.exists(photo_path):
+            try:
+                await bot.send_photo(chat_id, photo=open(photo_path, 'rb'), caption=f"Photo {i+1}/{count}")
+            except Exception:
+                pass 
+        
+        await asyncio.sleep(2) # Delay between photos
+        
+    CAMERA_ACTIVE = False
+    try: await bot.send_message(chat_id, "🏁 Burst Complete.")
+    except: pass
+
+
+@auth_required
+async def handle_camera_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles Camera menu buttons."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    chat_id = update.effective_chat.id
+    global CAMERA_ACTIVE
+    
+    if data == "cam_stop":
+        CAMERA_ACTIVE = False
+        await query.edit_message_text("⏹️ Camera Stopped.", parse_mode='Markdown')
+        return
+
+    if CAMERA_ACTIVE:
+        await query.message.reply_text("⚠️ Camera is already active! Stop it first.")
+        return
+
+    if data == "cam_live":
+        CAMERA_ACTIVE = True
+        asyncio.create_task(camera_monitor_loop(context.bot, chat_id))
+        await query.edit_message_text("🔴 Live Feed Started...", parse_mode='Markdown')
+        
+    elif data.startswith("cam_burst_"):
+        count = int(data.split("_")[2])
+        asyncio.create_task(camera_burst_loop(context.bot, chat_id, count))
+        await query.edit_message_text(f"📸 Taking {count} photos...", parse_mode='Markdown')
+
+
 async def camera_monitor_loop(bot, chat_id):
     global CAMERA_ACTIVE
     try:
@@ -386,9 +478,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "/panic" in lower_text or "🚨 panic" in lower_text or "panic mode" in lower_text:
         command_json = {"action": "system_panic"}
     elif "/camera_on" in lower_text or "📹 camera" in lower_text:
-        command_json = {"action": "camera_stream", "value": "on"}
-    elif "/camera_off" in lower_text or "⏹️ stop" in lower_text:
-        command_json = {"action": "camera_stream", "value": "off"}
+        # Create inline keyboard for Camera
+        keyboard = [
+            [
+                InlineKeyboardButton("🔴 Live Feed", callback_data="cam_live"),
+                InlineKeyboardButton("⏹️ Stop Feed", callback_data="cam_stop")
+            ],
+            [
+                InlineKeyboardButton("📸 Take 5", callback_data="cam_burst_5"),
+                InlineKeyboardButton("📸 Take 10", callback_data="cam_burst_10")
+            ],
+            [
+                InlineKeyboardButton("📸 Take 20", callback_data="cam_burst_20"),
+                InlineKeyboardButton("📸 Take 30", callback_data="cam_burst_30")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "📹 **Camera Controls**\n\nSelect a mode:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        return
+
     elif "/recordaudio" in lower_text:
         parts = lower_text.split()
         if len(parts) > 1:
@@ -508,29 +621,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- CAFFEINE MODE (KEEP AWAKE) COMMANDS ---
     elif "/caffeine" in lower_text or "☕ caffeine" in lower_text:
-        # Parse argument: on or off
-        parts = lower_text.split()
-        if len(parts) >= 2:
-            arg = parts[1].strip()
-            if arg == "on":
-                command_json = {"action": "toggle_caffeine", "state": True}
-            elif arg == "off":
-                command_json = {"action": "toggle_caffeine", "state": False}
-            else:
-                # Invalid arguments
-                await update.message.reply_text(
-                    "⚠️ Invalid command. Use:\n• `/caffeine on` - Enable keep-awake mode\n• `/caffeine off` - Disable keep-awake mode",
-                    reply_markup=get_main_keyboard()
-                )
-                return
-        else:
-            # No argument provided
-            await update.message.reply_text(
-                "☕ **Caffeine Mode (Keep Awake)**\n\nPrevents system from sleeping.\n\n**Usage:**\n• `/caffeine on` - Keep system awake\n• `/caffeine off` - Allow normal sleep",
-                parse_mode='Markdown',
-                reply_markup=get_main_keyboard()
-            )
-            return
+        # Create inline keyboard for Caffeine
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Enable (Keep Awake)", callback_data="caffeine_on"),
+                InlineKeyboardButton("❌ Disable (Normal)", callback_data="caffeine_off")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "☕ **Caffeine Mode**\n\nPrevents your system from sleeping.\nSelect an option:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        return
     
     # --- CAFFEINE MODE KEYBOARD BUTTONS ---
     elif "☕ stay awake" in lower_text:
@@ -1624,6 +1729,7 @@ if __name__ == "__main__":
         # Increase connection timeout to handle slow uploads better
         
         # Run
+        # Run
         # Initialize Application
         application = ApplicationBuilder().token(TOKEN).read_timeout(60).write_timeout(60).build()
         
@@ -1632,6 +1738,8 @@ if __name__ == "__main__":
         application.add_handler(CallbackQueryHandler(handle_clipboard_callback, pattern="^copy_"))
         application.add_handler(CallbackQueryHandler(handle_zombie_callback, pattern="^z(kill|allow|ignore)_"))
         application.add_handler(CallbackQueryHandler(handle_media_callback, pattern="^(media_|vol_)"))
+        application.add_handler(CallbackQueryHandler(handle_caffeine_callback, pattern="^caffeine_"))
+        application.add_handler(CallbackQueryHandler(handle_camera_callback, pattern="^cam_"))
         application.add_handler(MessageHandler(filters.TEXT, handle_message))
         
         # Run
@@ -1653,6 +1761,8 @@ if __name__ == "__main__":
             application.add_handler(CallbackQueryHandler(handle_clipboard_callback, pattern="^copy_"))
             application.add_handler(CallbackQueryHandler(handle_zombie_callback, pattern="^z(kill|allow|ignore)_"))
             application.add_handler(CallbackQueryHandler(handle_media_callback, pattern="^(media_|vol_)"))
+            application.add_handler(CallbackQueryHandler(handle_caffeine_callback, pattern="^caffeine_"))
+            application.add_handler(CallbackQueryHandler(handle_camera_callback, pattern="^cam_"))
             application.add_handler(MessageHandler(filters.TEXT, handle_message))
 
         application.run_polling()
