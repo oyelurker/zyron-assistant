@@ -82,17 +82,34 @@ logging.basicConfig(
 )
 
 def get_main_keyboard():
-    # Main control keyboard
+    """Main control keyboard with grouped functionality"""
     keyboard = [
-        [KeyboardButton("/screenshot"), KeyboardButton("/camera_on"), KeyboardButton("/camera_off")],
-        [KeyboardButton("🚨 PANIC")],
-        [KeyboardButton("/sleep"), KeyboardButton("/restart"), KeyboardButton("/shutdown")],
-        [KeyboardButton("/batterypercentage"), KeyboardButton("/systemhealth")],
-        [KeyboardButton("/location"), KeyboardButton("/recordaudio")],
-        [KeyboardButton("/clear_bin"), KeyboardButton("/storage")], 
-        [KeyboardButton("/activities"), KeyboardButton("/copied_texts")],
-        [KeyboardButton("☕ Stay Awake"), KeyboardButton("💤 Normal Mode")],
-        [KeyboardButton("/media"), KeyboardButton("/focus_mode_on"), KeyboardButton("/blacklist")]
+        # Row 1: Capture
+        [KeyboardButton("📸 Screenshot"), KeyboardButton("📹 Camera")],
+        # Row 2: Emergency
+        [KeyboardButton("🚨 Panic Mode")],
+        # Row 3: Power
+        [KeyboardButton("💤 Sleep"), KeyboardButton("🔄 Restart"), KeyboardButton("🛑 Shutdown")],
+        # Row 4: Status
+        [KeyboardButton("🔋 Battery"), KeyboardButton("⚙️ System Health")],
+        # Row 5: Utilities
+        [KeyboardButton("📁 File Search"), KeyboardButton("📍 Location"), KeyboardButton("🧩 More Tools...")],
+        # Row 6: Media
+        [KeyboardButton("⏯️ Media Controls")]
+    ]
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+def get_utility_keyboard():
+    """Secondary keyboard for extra utilities"""
+    keyboard = [
+        # Row 1: Quick Actions
+        [KeyboardButton("☕ Caffeine"), KeyboardButton("📋 Clipboard"), KeyboardButton("🗑️ Clear Bin")],
+        # Row 2: Advanced
+        [KeyboardButton("🔍 Scan Page"), KeyboardButton("💿 Storage"), KeyboardButton("📊 Activities")],
+        # Row 3: Media
+        [KeyboardButton("🎙️ Record Audio")],
+        # Row 4: Navigation
+        [KeyboardButton("🔙 Back to Main Menu")]
     ]
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -122,13 +139,15 @@ async def handle_clipboard_callback(update: Update, context: ContextTypes.DEFAUL
             text = item['text']
             timestamp = item['timestamp']
             
-            # Send the text with formatting
+            # Send the text with standardized formatting
             await query.message.reply_text(
-                f"📋 **Copied Text #{index + 1}**\n"
-                f"🕐 {timestamp}\n\n"
-                f"```\n{text}\n```\n\n"
-                f"✅ _Tap the code block above to copy to your clipboard_",
-                parse_mode='Markdown',
+                f"<b>📋 CLIPBOARD ITEM #{index + 1}</b>\n"
+                f"────────────────────────\n"
+                f"🕐 <b>Time:</b> {timestamp}\n\n"
+                f"<code>{text}</code>\n"
+                f"────────────────────────\n\n"
+                f"✅ <i>Tap the code block above to copy</i>",
+                parse_mode='HTML',
                 reply_markup=get_main_keyboard()
             )
         else:
@@ -164,15 +183,18 @@ async def zombie_alert_callback(bot, chat_id, zombie_list):
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         message = (
-            f"🧟 **Zombie Process Detected!**\n\n"
-            f"**App:** `{name}`\n"
-            f"**Memory:** {ram} MB\n"
-            f"**Idle Time:** {idle}\n\n"
-            f"This process is consuming resources but hasn't been used in hours. What should I do?"
+            f"<b>🧟 ZOMBIE PROCESS DETECTED</b>\n"
+            f"────────────────────────\n"
+            f"<code>Process: {name}\n"
+            f"PID: {pid}\n"
+            f"Memory: {ram} MB\n"
+            f"Idle: {idle}</code>\n"
+            f"────────────────────────\n\n"
+            f"⚠️ This process is consuming resources but hasn't been used in hours."
         )
         
         try:
-            await bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown', reply_markup=reply_markup)
+            await bot.send_message(chat_id=chat_id, text=message, parse_mode='HTML', reply_markup=reply_markup)
         except Exception as e:
             print(f"⚠️ Failed to send Zombie Alert: {e}")
 
@@ -285,6 +307,132 @@ async def handle_media_callback(update: Update, context: ContextTypes.DEFAULT_TY
             pass
 
 
+@auth_required
+async def handle_caffeine_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles button clicks for Caffeine Mode."""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    # Importing system--functions
+    from zyron.agents.system import toggle_caffeine
+    
+    if data == "caffeine_on":
+        result = toggle_caffeine(True)
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
+    elif data == "caffeine_1h":
+        result = toggle_caffeine(True, duration=60) 
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
+    elif data == "caffeine_3h":
+        result = toggle_caffeine(True, duration=180) 
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
+    elif data == "caffeine_off":
+        result = toggle_caffeine(False)
+        msg_text = f"☕ **Caffeine Mode**\n\n✅ {result}"
+    
+    # Update message
+    try:
+        await query.edit_message_text(
+            msg_text,
+            parse_mode='Markdown',
+            reply_markup=query.message.reply_markup
+        )
+    except Exception:
+        pass
+
+
+@auth_required
+async def handle_audio_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles Audio Dashboard buttons."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    chat_id = update.effective_chat.id
+    
+    # Importing system--functions
+    from zyron.agents.system import record_audio
+    
+    if data.startswith("aud_rec_"):
+        duration_str = data.split("_")[2]
+        duration = int(duration_str)
+        
+        await query.edit_message_text(f"🎙️ Recording for {duration} seconds...", parse_mode='Markdown')
+        
+        # Run recording in background to not block
+        def record_task():
+            path = record_audio(duration)
+            return path
+            
+        loop = asyncio.get_running_loop()
+        file_path = await loop.run_in_executor(None, record_task)
+        
+        if file_path and os.path.exists(file_path):
+             await context.bot.send_voice(chat_id=chat_id, voice=open(file_path, 'rb'), caption=f"🎙️ Audio Recording ({duration}s)")
+             await context.bot.send_message(chat_id, "✅ Recording sent.", reply_markup=get_main_keyboard())
+        else:
+             await context.bot.send_message(chat_id, "❌ Recording failed.", reply_markup=get_main_keyboard())
+
+
+
+async def camera_burst_loop(bot, chat_id, count):
+    """Takes 'count' photos with a delay."""
+    global CAMERA_ACTIVE
+    CAMERA_ACTIVE = True
+    
+    try:
+        status_msg = await bot.send_message(chat_id, f"📸 Starting Burst: {count} photos...")
+    except: pass
+    
+    for i in range(count):
+        if not CAMERA_ACTIVE:
+            try: await bot.send_message(chat_id, "⏹️ Burst Stopped.")
+            except: pass
+            return
+
+        photo_path = capture_webcam()
+        if photo_path and os.path.exists(photo_path):
+            try:
+                await bot.send_photo(chat_id, photo=open(photo_path, 'rb'), caption=f"Photo {i+1}/{count}")
+            except Exception:
+                pass 
+        
+        await asyncio.sleep(2) # Delay between photos
+        
+    CAMERA_ACTIVE = False
+    try: await bot.send_message(chat_id, "🏁 Burst Complete.")
+    except: pass
+
+
+@auth_required
+async def handle_camera_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handles Camera menu buttons."""
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    chat_id = update.effective_chat.id
+    global CAMERA_ACTIVE
+    
+    if data == "cam_stop":
+        CAMERA_ACTIVE = False
+        await query.edit_message_text("⏹️ Camera Stopped.", parse_mode='Markdown')
+        return
+
+    if CAMERA_ACTIVE:
+        await query.message.reply_text("⚠️ Camera is already active! Stop it first.")
+        return
+
+    if data == "cam_live":
+        CAMERA_ACTIVE = True
+        asyncio.create_task(camera_monitor_loop(context.bot, chat_id))
+        await query.edit_message_text("🔴 Live Feed Started...", parse_mode='Markdown')
+        
+    elif data.startswith("cam_burst_"):
+        count = int(data.split("_")[2])
+        asyncio.create_task(camera_burst_loop(context.bot, chat_id, count))
+        await query.edit_message_text(f"📸 Taking {count} photos...", parse_mode='Markdown')
+
+
 async def camera_monitor_loop(bot, chat_id):
     global CAMERA_ACTIVE
     try:
@@ -351,26 +499,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Pre-process common commands
     command_json = None
     
-    if "/battery" in lower_text or "battery" in lower_text:
+    if "/battery" in lower_text or "battery" in lower_text or "🔋 battery" in lower_text:
         command_json = {"action": "check_battery"}
-    elif "/systemhealth" in lower_text or "system health" in lower_text:
+    elif "/systemhealth" in lower_text or "system health" in lower_text or "⚙️ system health" in lower_text:
         command_json = {"action": "check_health"}
-    elif ("/screenshot" in lower_text or "screenshot" in lower_text) and not ("tab" in lower_text or "browser" in lower_text):
+    elif ("/screenshot" in lower_text or "screenshot" in lower_text or "📸 screenshot" in lower_text) and not ("tab" in lower_text or "browser" in lower_text):
         command_json = {"action": "take_screenshot"}
-    elif "/sleep" in lower_text:
+    elif "/sleep" in lower_text or "💤 sleep" in lower_text:
         command_json = {"action": "system_sleep"}
-    elif "/shutdown" in lower_text or "shutdown" in lower_text:
+    elif "/shutdown" in lower_text or "shutdown" in lower_text or "🛑 shutdown" in lower_text:
         command_json = {"action": "shutdown_pc"}
-    elif "/restart" in lower_text or "restart" in lower_text:
+    elif "/restart" in lower_text or "restart" in lower_text or "🔄 restart" in lower_text:
         command_json = {"action": "restart_pc"}
-    elif "/panic" in lower_text or "🚨 panic" in lower_text:
+    elif "/panic" in lower_text or "🚨 panic" in lower_text or "panic mode" in lower_text:
         command_json = {"action": "system_panic"}
-    elif "/camera_on" in lower_text:
-        command_json = {"action": "camera_stream", "value": "on"}
-    elif "/camera_off" in lower_text:
-        command_json = {"action": "camera_stream", "value": "off"}
-    elif "/recordaudio" in lower_text:
-        parts = lower_text.split()
+    elif "/camera_on" in lower_text or "📹 camera" in lower_text:
+        # Create inline keyboard for Camera
+        keyboard = [
+            [
+                InlineKeyboardButton("🔴 Live Feed", callback_data="cam_live"),
+                InlineKeyboardButton("⏹️ Stop Feed", callback_data="cam_stop")
+            ],
+            [
+                InlineKeyboardButton("📸 Take 5", callback_data="cam_burst_5"),
+                InlineKeyboardButton("📸 Take 10", callback_data="cam_burst_10")
+            ],
+            [
+                InlineKeyboardButton("📸 Take 20", callback_data="cam_burst_20"),
+                InlineKeyboardButton("📸 Take 30", callback_data="cam_burst_30")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "📹 **Camera Controls**\n\nSelect a mode:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        return
+
+    elif "/recordaudio" in lower_text or "record audio" in lower_text or "🎙️ record audio" in lower_text:
+        # Check if it is the button press (contains emoji or multiple words that are not args)
+        if "🎙️ record audio" in lower_text:
+            parts = [] # Force dashboard
+        else:
+            parts = lower_text.split()
+            
         if len(parts) > 1:
             arg = parts[1]
             try:
@@ -392,25 +566,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Invalid format. try `/recordaudio 10s` or `/recordaudio 1m`.", reply_markup=get_main_keyboard())
                 return
         else:
+            # Create inline keyboard for Audio
+            keyboard = [
+                [
+                    InlineKeyboardButton("🎙️ Record 10s", callback_data="aud_rec_10"),
+                    InlineKeyboardButton("🎙️ Record 30s", callback_data="aud_rec_30")
+                ],
+                [
+                    InlineKeyboardButton("🎙️ Record 1 Minute", callback_data="aud_rec_60")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await update.message.reply_text(
-                "🎙️ **Audio Recording**\n\nPlease specify your desired duration. For example:\n• `/recordaudio 10s` (for 10 seconds)\n• `/recordaudio 2m` (for 2 minutes)\n\n*Maximum duration is 1 hour.*", 
+                "🎙️ **Audio Dashboard**\n\nSelect duration:",
                 parse_mode='Markdown',
-                reply_markup=get_main_keyboard()
+                reply_markup=reply_markup
             )
             return
             
-    elif "/location" in lower_text or any(x in lower_text for x in ["my location", "where am i", "laptop location", "where is my laptop", "find location"]):
+    elif "/location" in lower_text or "📍 location" in lower_text or any(x in lower_text for x in ["my location", "where am i", "laptop location", "where is my laptop", "find location"]):
         command_json = {"action": "get_location"}
     # --- EXISTING BUTTON TRIGGERS ---
-    elif "/clear_bin" in lower_text or "clear bin" in lower_text:
+    elif "/clear_bin" in lower_text or "clear bin" in lower_text or "🗑️ clear bin" in lower_text:
         command_json = {"action": "clear_recycle_bin"}
-    elif "/storage" in lower_text or "check storage" in lower_text:
+    elif "/storage" in lower_text or "check storage" in lower_text or "💿 storage" in lower_text:
         command_json = {"action": "check_storage"}
-    elif "/activities" in lower_text or "activities" in lower_text:
+    elif "/activities" in lower_text or "activities" in lower_text or "📊 activities" in lower_text:
         command_json = {"action": "get_activities"}
     
     # --- MEDIA CONTROLLER ---
-    elif "/media" in lower_text:
+    elif "/media" in lower_text or "⏯️ media" in lower_text or "media controls" in lower_text:
         # Send inline keyboard for media controls
         keyboard = [
             [
@@ -434,9 +620,37 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return  # Exit early since we handled this
     
-    # --- NEW CLIPBOARD TRIGGER ---
-    elif "/copied_texts" in lower_text or any(x in lower_text for x in ["copied texts", "clipboard history", "what did i copy", "show copied"]):
+    # --- MORE TOOLS MENU HANDLER ---
+    elif "🧩 more tools" in lower_text:
+        await update.message.reply_text(
+            "🧩 **More Tools**\nSelect a utility:",
+            parse_mode='Markdown',
+            reply_markup=get_utility_keyboard()
+        )
+        return
+
+    # --- BACK TO MAIN MENU HANDLER ---
+    elif "🔙 back to main menu" in lower_text:
+        await update.message.reply_text(
+            "🏠 **Main Menu**",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard()
+        )
+        return
+
+    # --- CLIIPBOARD & UTILITY HANDLERS ---
+    # Triggered by buttons in "More Tools" menu
+    elif "/copied_texts" in lower_text or "📋 clipboard" in lower_text or any(x in lower_text for x in ["copied texts", "clipboard history", "what did i copy", "show copied"]):
         command_json = {"action": "get_clipboard_history"}
+    
+    # --- FILE SEARCH BUTTON ---
+    elif "📁 file search" in lower_text:
+        await update.message.reply_text(
+            "🔍 **File Search**\n\nTo search for a file, just describe it:\n• `find my video from yesterday`\n• `send me that PDF about python`\n• `show me recent screenshots`\n\nI'll use AI to find the most relevant file!",
+            parse_mode='Markdown',
+            reply_markup=get_main_keyboard()
+        )
+        return
 
     # --- FEATURE #11: FOCUS MODE COMMANDS ---
     elif "/focus_mode_on" in lower_text or "focus on" in lower_text:
@@ -459,30 +673,27 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             command_json = {"action": "focus_mode", "sub_action": "status"}
 
     # --- CAFFEINE MODE (KEEP AWAKE) COMMANDS ---
-    elif "/caffeine" in lower_text:
-        # Parse argument: on or off
-        parts = lower_text.split()
-        if len(parts) >= 2:
-            arg = parts[1].strip()
-            if arg == "on":
-                command_json = {"action": "toggle_caffeine", "state": True}
-            elif arg == "off":
-                command_json = {"action": "toggle_caffeine", "state": False}
-            else:
-                # Invalid arguments
-                await update.message.reply_text(
-                    "⚠️ Invalid command. Use:\n• `/caffeine on` - Enable keep-awake mode\n• `/caffeine off` - Disable keep-awake mode",
-                    reply_markup=get_main_keyboard()
-                )
-                return
-        else:
-            # No argument provided
-            await update.message.reply_text(
-                "☕ **Caffeine Mode (Keep Awake)**\n\nPrevents system from sleeping.\n\n**Usage:**\n• `/caffeine on` - Keep system awake\n• `/caffeine off` - Allow normal sleep",
-                parse_mode='Markdown',
-                reply_markup=get_main_keyboard()
-            )
-            return
+    elif "/caffeine" in lower_text or "☕ caffeine" in lower_text:
+        # Create inline keyboard for Caffeine
+        # Create inline keyboard for Caffeine
+        keyboard = [
+            [
+                InlineKeyboardButton("✅ Enable (Keep Awake)", callback_data="caffeine_on"),
+                InlineKeyboardButton("❌ Disable", callback_data="caffeine_off")
+            ],
+            [
+                InlineKeyboardButton("☕ 1 Hour", callback_data="caffeine_1h"),
+                InlineKeyboardButton("☕ 3 Hours", callback_data="caffeine_3h")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "☕ **Caffeine Mode**\n\nPrevents your system from sleeping.\nSelect an option:",
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        return
     
     # --- CAFFEINE MODE KEYBOARD BUTTONS ---
     elif "☕ stay awake" in lower_text:
@@ -494,7 +705,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif "/read" in lower_text or "read page" in lower_text:
         command_json = {"action": "browser_nav", "sub_action": "read"}
         
-    elif "/scan" in lower_text:
+    elif "/scan" in lower_text or "🔍 scan page" in lower_text:
         command_json = {"action": "browser_nav", "sub_action": "scan"}
         
     elif "/scroll" in lower_text or "scroll down" in lower_text:
@@ -679,23 +890,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             location_data = execute_command(command_json)
             
             if location_data:
-                # Format location message
-                location_text = f"""🌍 **Laptop Location**
+                # Format location message with standardized header
+                location_text = f"""<b>📍 LOCATION</b>
+────────────────────────
+🌆 <b>Location:</b> {location_data['city']}, {location_data['region']}
+🏳️ <b>Country:</b> {location_data['country']} ({location_data['country_code']})
+📮 <b>Postal:</b> {location_data['postal']}
+🌐 <b>IP:</b> {location_data['ip']}
+📡 <b>ISP:</b> {location_data['org']}
+🕐 <b>Timezone:</b> {location_data['timezone']}
 
-🌆 **Location:** {location_data['city']}, {location_data['region']}
-🏳️ **Country:** {location_data['country']} ({location_data['country_code']})
-📮 **Postal Code:** {location_data['postal']}
-🌐 **IP Address:** {location_data['ip']}
-📡 **ISP:** {location_data['org']}
-🕐 **Timezone:** {location_data['timezone']}
+📌 <b>Coordinates:</b>
+• Lat: {location_data['latitude']}
+• Lon: {location_data['longitude']}
 
-📌 **Coordinates:**
-Latitude: {location_data['latitude']}
-Longitude: {location_data['longitude']}
+🔍 <b>Source:</b> {location_data['source']}
+────────────────────────
 
-🔍 **Data Source:** {location_data['source']}
-
-🗺️ [**Open in Google Maps**]({location_data['maps_url']})
+🗺️ <a href=\"{location_data['maps_url']}\">Open in Google Maps</a>
 """
                 
                 # Add comparison if multiple sources were checked
@@ -707,7 +919,7 @@ Longitude: {location_data['longitude']}
                 # Send location as text
                 await update.message.reply_text(
                     location_text,
-                    parse_mode='Markdown',
+                    parse_mode='HTML',
                     disable_web_page_preview=False,
                     reply_markup=get_main_keyboard()
                 )
@@ -902,13 +1114,16 @@ Longitude: {location_data['longitude']}
                         m, s = divmod(duration, 60)
                         duration_str = f"{m}m {s}s"
                     
-                    # Create Detailed Caption
+                    # Create Detailed Caption with structured formatting
                     caption_text = (
-                        f"✅ **Found:** {file_name}\n"
-                        f"📱 **App:** {app_used}\n"
-                        f"📅 **Time:** {timestamp}\n"
-                        f"⏱️ **Duration:** {duration_str}\n"
-                        f"🎯 **Confidence:** {confidence}%"
+                        f"<b>📁 FILE FOUND</b>\n"
+                        f"────────────────────────\n"
+                        f"<b>File:</b> {file_name}\n"
+                        f"<b>App Used:</b> {app_used}\n"
+                        f"<b>Timestamp:</b> {timestamp}\n"
+                        f"<b>Duration:</b> {duration_str}\n"
+                        f"<b>Confidence:</b> {confidence}%\n"
+                        f"────────────────────────"
                     )
                     # -----------------------------
                     
@@ -931,7 +1146,7 @@ Longitude: {location_data['longitude']}
                         await update.message.reply_document(
                             document=open(file_path, 'rb'),
                             caption=caption_text,
-                            parse_mode='Markdown',
+                            parse_mode='HTML',
                             reply_markup=get_main_keyboard()
                         )
                         await upload_msg.delete()
@@ -1474,13 +1689,13 @@ Longitude: {location_data['longitude']}
                             try: await loader.edit_text("❌ No interactive elements found.")
                             except: await update.message.reply_text("❌ No interactive elements found.")
                         else:
-                            lines = ["🎯 **Interactive Elements:**\n"]
+                            lines = ["<b>🎯 INTERACTIVE ELEMENTS</b>\n────────────────────────"]
                             for el in elements:
-                                lines.append(f"`[{el['id']}]` {el['text']} ({el['type']})")
+                                lines.append(f"<code>[{el['id']}]</code> <b>{el['text']}</b> ({el['type']})")
                             msg = "\n".join(lines)
                             if len(msg) > 4000: msg = msg[:4000] + "\n...(truncated)"
-                            try: await loader.edit_text(msg, parse_mode='Markdown')
-                            except: await update.message.reply_text(msg, parse_mode='Markdown')
+                            try: await loader.edit_text(msg, parse_mode='HTML')
+                            except: await update.message.reply_text(msg, parse_mode='HTML')
                     else:
                         err_msg = f"❌ Scan failed: {result.get('error') if result else 'Unknown'}"
                         try: await loader.edit_text(err_msg)
@@ -1572,6 +1787,7 @@ if __name__ == "__main__":
         # Increase connection timeout to handle slow uploads better
         
         # Run
+        # Run
         # Initialize Application
         application = ApplicationBuilder().token(TOKEN).read_timeout(60).write_timeout(60).build()
         
@@ -1580,6 +1796,9 @@ if __name__ == "__main__":
         application.add_handler(CallbackQueryHandler(handle_clipboard_callback, pattern="^copy_"))
         application.add_handler(CallbackQueryHandler(handle_zombie_callback, pattern="^z(kill|allow|ignore)_"))
         application.add_handler(CallbackQueryHandler(handle_media_callback, pattern="^(media_|vol_)"))
+        application.add_handler(CallbackQueryHandler(handle_caffeine_callback, pattern="^caffeine_"))
+        application.add_handler(CallbackQueryHandler(handle_camera_callback, pattern="^cam_"))
+        application.add_handler(CallbackQueryHandler(handle_audio_callback, pattern="^aud_"))
         application.add_handler(MessageHandler(filters.TEXT, handle_message))
         
         # Run
@@ -1601,6 +1820,9 @@ if __name__ == "__main__":
             application.add_handler(CallbackQueryHandler(handle_clipboard_callback, pattern="^copy_"))
             application.add_handler(CallbackQueryHandler(handle_zombie_callback, pattern="^z(kill|allow|ignore)_"))
             application.add_handler(CallbackQueryHandler(handle_media_callback, pattern="^(media_|vol_)"))
+            application.add_handler(CallbackQueryHandler(handle_caffeine_callback, pattern="^caffeine_"))
+            application.add_handler(CallbackQueryHandler(handle_camera_callback, pattern="^cam_"))
+            application.add_handler(CallbackQueryHandler(handle_audio_callback, pattern="^aud_"))
             application.add_handler(MessageHandler(filters.TEXT, handle_message))
 
         application.run_polling()

@@ -64,7 +64,7 @@ ES_CONTINUOUS = 0x80000000
 ES_SYSTEM_REQUIRED = 0x00000001
 ES_DISPLAY_REQUIRED = 0x00000002
 
-def _caffeine_loop():
+def _caffeine_loop(duration=0):
     """
     Background thread that prevents system sleep and screen timeout.
     Uses Windows SetThreadExecutionState API for reliable prevention.
@@ -72,29 +72,40 @@ def _caffeine_loop():
     global CAFFEINE_ACTIVE
     import ctypes
     
-    print("☕ Caffeine thread started - keeping system awake...")
+    print(f"☕ Caffeine thread started - keeping system awake for {duration if duration > 0 else 'infinity'} minutes...")
     
     # Set execution state to prevent sleep and display timeout
     ctypes.windll.kernel32.SetThreadExecutionState(
         ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
     )
     
+    start_time = time.time()
+    
     while CAFFEINE_ACTIVE:
+        # Check duration if set
+        if duration > 0:
+            elapsed_min = (time.time() - start_time) / 60
+            if elapsed_min >= duration:
+                print("⏰ Caffeine timer expired. Disabling...")
+                CAFFEINE_ACTIVE = False
+                break
+
         # Periodically verify we're still preventing sleep
         timestamp = time.strftime('%H:%M:%S')
-        print(f"   🔄 Awake check at {timestamp}... (display + system)")
+        # print(f"   🔄 Awake check at {timestamp}... (display + system)") 
         time.sleep(60)  # Check every minute
     
     # Reset execution state when disabling
     ctypes.windll.kernel32.SetThreadExecutionState(ES_CONTINUOUS)
     print("💤 Caffeine thread stopped.")
 
-def toggle_caffeine(state: bool):
+def toggle_caffeine(state: bool, duration: int = 0):
     """
     Enable or disable caffeine mode.
     
     Args:
         state: True to enable, False to disable
+        duration: Duration in minutes (0 for infinite)
     
     Returns:
         Status message for user feedback
@@ -104,14 +115,16 @@ def toggle_caffeine(state: bool):
     if state:
         # Enable caffeine mode
         if CAFFEINE_ACTIVE:
-            return "☕ Caffeine Mode is already active. System will stay awake."
+            return "☕ Caffeine Mode is already active."
         
         CAFFEINE_ACTIVE = True
         
         # Start background thread (daemon = auto-terminates on exit)
-        jiggler_thread = threading.Thread(target=_caffeine_loop, daemon=True)
+        jiggler_thread = threading.Thread(target=_caffeine_loop, args=(duration,), daemon=True)
         jiggler_thread.start()
         
+        if duration > 0:
+            return f"☕ Caffeine Mode Active for {duration} mins."
         return "☕ Caffeine Mode Active. System will stay awake."
     else:
         # Disable caffeine mode
